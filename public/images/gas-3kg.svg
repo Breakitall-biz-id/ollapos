@@ -1,0 +1,9 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="200" height="200" fill="#f0f9ff"/>
+  <circle cx="100" cy="80" r="60" fill="#3b82f6" stroke="#1e40af" stroke-width="3"/>
+  <circle cx="100" cy="80" r="45" fill="#60a5fa" stroke="#1e40af" stroke-width="2"/>
+  <rect x="85" y="140" width="30" height="50" fill="#6b7280" rx="5"/>
+  <rect x="80" y="130" width="40" height="15" fill="#374151" rx="3"/>
+  <text x="100" y="85" text-anchor="middle" fill="white" font-family="Arial" font-size="14" font-weight="bold">3 KG</text>
+  <text x="100" y="170" text-anchor="middle" fill="#1f2937" font-family="Arial" font-size="12">GAS LPG</text>
+</svg>
