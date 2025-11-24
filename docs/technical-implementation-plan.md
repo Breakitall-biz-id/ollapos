@@ -1,339 +1,144 @@
 # Technical Implementation Plan
 
-## Project Overview
-Ollapos - Elderly-friendly Point of Sale system for LPG retailers (Pangkalan)
+1. Overview
+-----------
 
-### Tech Stack
-- **Frontend**: Next.js 14+ (App Router), TypeScript
-- **UI**: Tailwind CSS, Shadcn/ui Components
-- **Icons**: Lucide React
-- **Backend**: Next.js Server Actions
-- **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: Better Auth
-- **State Management**: Zustand
-- **Deployment**: Standalone desktop mode (1920x1080 optimization)
+Use this document to design and communicate how you will implement product requirements end to end. It helps you:
 
-## Architecture Overview
+- Turn the PRD into concrete technical decisions.
+- Define service and module boundaries.
+- Map key data flows and ownership.
+- Choose technologies and patterns that fit the constraints.
+- Sequence work into buildable milestones.
 
-### 1. Project Structure
-```
-src/
-├── app/                          # Next.js App Router
-│   ├── (auth)/                   # Authentication routes
-│   │   ├── login/
-│   │   └── register/
-│   ├── dashboard/                # Main POS interface
-│   │   └── page.tsx             # Split-screen layout
-│   ├── inventory/               # Inventory management
-│   │   ├── restock/
-│   │   └── logs/
-│   ├── customers/               # Customer management
-│   ├── api/                     # API endpoints (if needed)
-│   └── globals.css
-├── components/                  # Reusable components
-│   ├── ui/                     # Shadcn/ui base components
-│   ├── pos/                    # POS-specific components
-│   ├── layout/                 # Layout components
-│   └── forms/                  # Form components
-├── lib/                        # Utilities and configurations
-│   ├── auth.ts                 # Better Auth config
-│   ├── db.ts                   # Database connection
-│   ├── utils.ts                # Helper functions
-│   └── validations.ts          # Zod schemas
-├── stores/                     # Zustand stores
-│   ├── cart.ts                 # Shopping cart state
-│   ├── pos.ts                  # POS session state
-│   └── inventory.ts            # Inventory state
-├── types/                      # TypeScript type definitions
-├── hooks/                      # Custom React hooks
-└── server/                     # Server actions
-    ├── actions/
-    │   ├── auth.ts
-    │   ├── transactions.ts
-    │   ├── inventory.ts
-    │   └── customers.ts
-    └── queries/
-```
+You should update this file whenever you introduce non-trivial behaviours, new flows, or cross-cutting changes (auth, data model, performance, etc.). It is the main place where a new engineer can answer “how does this system work under the hood?” before they read the code.
 
-### 2. Core Features Implementation
+2. Quick-Start
+--------------
 
-#### 2.1 Authentication System
-**Implementation Details:**
-- Better Auth with email/password
-- Long-lived sessions (30 days)
-- Role-based access (agent/pangkalan)
-- Session persistence across browser restarts
+When you add or change features, keep this short checklist in mind:
 
-**Key Components:**
-- `lib/auth.ts` - Better Auth configuration
-- `server/actions/auth.ts` - Authentication server actions
-- Login/Register forms with elderly-friendly UI
+- Start from `docs/prd.md` and identify the user flows you are touching.
+- Sketch the flow from UI → server → database (including error paths).
+- Document:
+  - Components/pages you will touch in `app/` and `components/`.
+  - Server logic in `lib/`, `server/`, and `db/`.
+  - Schema changes in `db/` and how they flow into queries/mutations.
+- Add or update a “Sequencing” subsection for any multi-step rollout.
+- Cross-link to relevant diagrams or docs in `docs/` or `documentation/`.
 
-#### 2.2 Split Screen POS Interface
-**Layout Structure:**
-```tsx
-// Dashboard Layout (1920x1080 optimized)
-<div className="flex h-screen">
-  {/* Left Side - Product Catalog (60% width) */}
-  <div className="w-3/5 p-4 border-r">
-    <ProductCatalog />
-  </div>
+3. Key Concepts / Responsibilities
+----------------------------------
 
-  {/* Right Side - Cart & Checkout (40% width) */}
-  <div className="w-2/5 p-4">
-    <CartAndCheckout />
-  </div>
-</div>
-```
+This plan focuses on a few core concerns:
 
-**Key Components:**
-- `ProductCatalog` - Category tabs and product grid
-- `ProductCard` - Large, clickable product cards with image
-- `CartAndCheckout` - Shopping cart and payment interface
-- `CartItem` - Individual cart items with +/- controls
+- End-to-end flows
+- Boundaries and ownership
+- Technology choices
+- Implementation sequencing
 
-#### 2.3 Elderly-Friendly UI Components
-**Design Specifications:**
-- Base font size: 18px
-- Important text (prices): 24-36px, bold
-- Large clickable areas (min 20px padding)
-- High contrast colors
-- No hidden menus or right-click functionality
+For this codebase, typical responsibilities look like:
 
-**Special Components:**
-- `NumpadModal` - On-screen number pad for all numeric input
-- `SmartCalculator` - Payment calculator with quick amount buttons
-- `ConfirmationDialog` - Large, clear confirmation dialogs
+- Frontend structure and interactions
+  - Which pages and layouts in `app/` support each flow.
+  - Which UI building blocks from `components/` and `hooks/` you reuse or extend.
+  - How local state (React), shared state (e.g. Zustand), and URL state interact.
 
-#### 2.4 Smart Shopping Cart
-**Features:**
-- Single-click add to cart (+1)
-- Click quantity to edit via numpad modal
-- Customer-based pricing (Regular vs VIP)
-- Real-time total calculation
-- Visual feedback for all actions
+- Server-side behaviour
+  - Where server actions live (`app/`, `server/`) and which flows they support.
+  - How you call into database utilities in `lib/` and `db/`.
+  - How you model error handling and validation.
 
-**State Management:**
-```typescript
-interface CartItem {
-  productId: string;
-  quantity: number;
-  priceAtPurchase: number;
-  subtotal: number;
-}
+- Data model and persistence
+  - How entities are represented in the database (`db/` and ORMs/migrations).
+  - How those entities map to TypeScript types and API payloads.
+  - How reads/writes are grouped for each UX flow (transaction boundaries).
 
-interface CartState {
-  items: CartItem[];
-  customerId?: string;
-  total: number;
-  addItem: (productId: string) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  setCustomer: (customerId: string) => void;
-  clearCart: () => void;
-}
-```
+- Cross-cutting concerns
+  - Authentication and authorization boundaries (e.g. which calls require which roles).
+  - Validation and sanitisation (often centralised in `lib/` or `hooks/`).
+  - Performance and caching decisions (e.g. where to memoise, paginate, or batch).
 
-#### 2.5 Payment System
-**Payment Methods:**
-1. **Cash**: Smart calculator with preset amounts and change calculation
-2. **QRIS**: Static QR display with manual confirmation
-3. **Debt (Kasbon)**: Requires customer selection, creates unpaid transaction
+- Sequencing and rollout
+  - Phasing for large features (v1, v1.1, etc.).
+  - Safe migration paths for schema and behavioural changes.
+  - Temporary feature flags or compatibility layers if needed.
 
-**Payment Flow:**
-1. Click "BAYAR" → Open payment modal
-2. Select payment method
-3. Process payment logic
-4. Generate receipt/struk
-5. Update inventory automatically
+4. Usage Examples
+-----------------
 
-#### 2.6 Inventory Management
-**Key Features:**
-- Manual restock with swap logic (filled +, empty -)
-- Real-time stock tracking
-- Inventory movement logs
-- Low stock alerts
+Use this section as a pattern library for future implementation plans. When you add a new feature, copy one of these patterns and adapt it.
 
-**Swap Logic Implementation:**
-```typescript
-async function restockProduct(
-  pangkalanId: string,
-  productId: string,
-  quantity: number
-) {
-  // When receiving new filled canisters:
-  await updateInventory(pangkalanId, productId, {
-    stock_filled: { increment: quantity },
-    stock_empty: { decrement: quantity }
-  });
+Example A: New end-to-end flow (e.g. “Create Transaction”)
+- Frontend:
+  - `app/dashboard/page.tsx`: orchestrates layout and passes props.
+  - `components/pos/ProductCatalog.tsx`: loads products for the current context.
+  - `components/pos/CartAndCheckout.tsx`: manages cart UI and triggers payment.
+- Server:
+  - `server/actions/transactions/createTransaction.ts`: validates input, applies pricing, updates inventory, and returns a result payload.
+  - `lib/pricing.ts`: encapsulates pricing rules for reuse.
+- Database:
+  - `db/migrations/*create_transactions*.sql`: creates transactions and line items tables.
+  - `db/queries/transactions.ts`: read helpers for history, reports, etc.
+- Sequencing:
+  - Phase 1: support cash only; minimal fields.
+  - Phase 2: add additional payment methods.
+  - Phase 3: add reporting and optimisations.
 
-  // Log the movement
-  await logInventoryChange(pangkalanId, productId, {
-    qty_change_filled: quantity,
-    qty_change_empty: -quantity,
-    type: 'manual_restock',
-    note: `Restok ${quantity} unit`
-  });
-}
-```
+Example B: Behavioural change with schema impact
+- Change:
+  - Introduce a new status or field on a core entity.
+- Plan:
+  - Database: migration in `db/` with defaults and backfill if needed.
+  - Server: update write paths first (`server/actions/...`), then reads.
+  - Frontend: surface the new field in `components/...` and `app/...` pages.
+  - Testing: add fixtures and tests for both old and new behaviour.
+- Notes:
+  - Document how the new field changes validation, filters, and permissions.
 
-### 3. Database Schema Implementation
+Example C: Cross-cutting concern (e.g. performance)
+- Identify:
+  - Slow list or report in `app/...` or `components/...`.
+- Plan:
+  - Introduce pagination or search parameters.
+  - Move heavy computation to server-side utility in `lib/` or `server/`.
+  - Add indexes or query optimisations in `db/`.
+- Document:
+  - New query contracts (inputs/outputs).
+  - Any new constraints (max page size, timeouts, etc.).
 
-#### 3.1 Prisma Schema Structure
-```prisma
-// Core enums
-enum UserRole { agent, pangkalan }
-enum ProductCategory { gas, water, general }
-enum PaymentMethod { cash, qris, debt }
-enum TransactionStatus { paid, unpaid, void }
+5. Dependencies & Interactions
+------------------------------
 
-// Key models with relationships
-model User {
-  id      String   @id @default(cuid())
-  email   String   @unique
-  name    String?
-  role    UserRole @default(pangkalan)
-  pangkalan Pangkalan?
-  // Better Auth fields
-  // ...
-}
+When you update this plan, call out how parts of the system depend on each other. Typical interactions include:
 
-model Product {
-  id          String          @id @default(cuid())
-  name        String
-  category    ProductCategory
-  imageUrl    String?
-  isGlobal    Boolean         @default(false)
-  pangkalanId String?
-  pangkalan   Pangkalan?      @relation(fields: [pangkalanId], references: [id])
-  priceRules  PriceRule[]
-  inventory   Inventory[]
-  transactionItems TransactionItem[]
-}
+- UI ↔ Server
+  - Pages in `app/` call server actions in `server/` or inline server actions in route files.
+  - Components in `components/` should stay mostly presentational and rely on hooks or props for data.
 
-model Inventory {
-  id           String  @id @default(cuid())
-  pangkalanId  String
-  productId    String
-  stockFilled  Int     @default(0) @map("stock_filled")
-  stockEmpty   Int     @default(0) @map("stock_empty")
-  updatedAt    DateTime @default(now()) @updatedAt
-  pangkalan    Pangkalan @relation(fields: [pangkalanId], references: [id])
-  product      Product   @relation(fields: [productId], references: [id])
+- Server ↔ Database
+  - Utilities in `lib/` and query modules in `db/` encapsulate raw queries and mapping to types.
+  - Server actions should not duplicate query logic; prefer calling shared helpers.
 
-  @@unique([pangkalanId, productId])
-}
-```
+- Shared state and utilities
+  - Hooks in `hooks/` and shared modules in `lib/` provide reusable logic (auth, validation, formatting).
+  - If you see repeated patterns inside `app/` or `components/`, pull them into a shared location and document the new abstraction here.
 
-### 4. Server Actions Implementation
+When documenting interactions, try to:
 
-#### 4.1 Transaction Processing
-```typescript
-// server/actions/transactions.ts
-export async function createTransaction(data: {
-  pangkalanId: string;
-  customerId?: string;
-  items: Array<{ productId: string; quantity: number }>;
-  paymentMethod: PaymentMethod;
-  cashReceived?: number;
-}) {
-  // 1. Calculate pricing based on customer VIP status
-  // 2. Create transaction record
-  // 3. Create transaction items
-  // 4. Update inventory (stock movement)
-  // 5. Log inventory changes
-  // 6. Handle payment method specific logic
-}
-```
+- Be explicit about ownership.
+  - “This module owns transaction creation. Other modules call it instead of writing directly.”
+- Call out idiosyncrasies.
+  - “Inventory updates must always happen inside a transaction with the sale record.”
+  - “This list view only supports filters X and Y; other filters require a new index.”
 
-#### 4.2 Pricing Engine
-```typescript
-// server/actions/pricing.ts
-export async function getProductPrice(
-  productId: string,
-  pangkalanId: string,
-  customerId?: string
-): Promise<number> {
-  // Get price rules for product
-  // Check if customer is VIP
-  // Return appropriate price (regular or VIP)
-}
-```
+6. Further Reading / Related Docs
+---------------------------------
 
-### 5. Performance & Optimization
+Use these files to go deeper:
 
-#### 5.1 Database Optimization
-- Composite indexes on frequently queried fields
-- Connection pooling for concurrent access
-- Read replicas for dashboard queries (future scaling)
-
-#### 5.2 Frontend Optimization
-- Image optimization for product photos
-- Lazy loading for customer lists
-- Debounced search for product lookup
-- Efficient re-renders with proper state management
-
-### 6. Security Considerations
-
-#### 6.1 Authentication & Authorization
-- Role-based access control
-- Session management with secure cookies
-- Input validation and sanitization
-
-#### 6.2 Data Protection
-- SQL injection prevention with Prisma
-- XSS protection with React's built-in safeguards
-- CSRF protection with Next.js built-in features
-
-### 7. Testing Strategy
-
-#### 7.1 Unit Tests
-- Business logic validation (pricing, inventory)
-- Server action testing
-- Component unit tests
-
-#### 7.2 Integration Tests
-- End-to-end transaction flow
-- Payment processing
-- Inventory updates
-
-#### 7.3 User Acceptance Testing
-- Elderly user testing sessions
-- Accessibility testing
-- Performance testing on target hardware
-
-### 8. Deployment & DevOps
-
-#### 8.1 Development Environment
-- Docker Compose for local development
-- Database migrations with Prisma
-- Seed data for testing
-
-#### 8.2 Production Deployment
-- Standalone deployment on desktop all-in-one
-- Automated backups
-- Monitoring and logging
-
-## Implementation Priority
-
-### Phase 1: Core POS (MVP)
-1. Authentication system
-2. Basic product catalog
-3. Shopping cart functionality
-4. Cash payment processing
-5. Basic inventory tracking
-
-### Phase 2: Enhanced Features
-1. Customer management with VIP pricing
-2. QRIS payment integration
-3. Debt/kasbon functionality
-4. Advanced inventory management
-5. Reporting and analytics
-
-### Phase 3: Optimization & Polish
-1. Performance optimization
-2. Accessibility improvements
-3. Additional reporting features
-4. Mobile responsiveness (future)
-
-This technical plan provides a comprehensive roadmap for implementing the Ollapos system with elderly-friendly design principles and robust business logic.
+- Product requirements: `docs/prd.md`
+- UI breakdowns and design intent: `docs/ui-components-breakdown.md`
+- Data design and schema notes: `docs/database-schema.md`
+- Delivery phases and timelines: `docs/development-timeline.md`
+- Additional product and UX context: files in `documentation/`
