@@ -44,6 +44,7 @@ interface Product {
   name: string
   category: "gas" | "water" | "general"
   basePrice: number
+  costPrice: number
   stock: number
   stockEmpty: number
   imageUrl?: string
@@ -83,6 +84,7 @@ type RawProduct = {
   name: string
   category?: string | null
   basePrice: string | number
+  costPrice?: string | number | null
   stock?: string | number | null
   stockEmpty?: string | number | null
   imageUrl?: string | null
@@ -151,6 +153,7 @@ export function POSInterface() {
               name: product.name,
               category,
               basePrice: Number(product.basePrice ?? 0),
+              costPrice: Number(product.costPrice ?? 0),
               stock: Number(product.stock ?? 0),
               stockEmpty: Number(product.stockEmpty ?? 0),
               imageUrl: product.imageUrl ?? undefined,
@@ -208,7 +211,9 @@ export function POSInterface() {
         name: product.name,
         category: product.category,
         basePrice: product.basePrice,
-        price: Math.round(product.basePrice * (1 - customerDiscountPercent / 100)),
+        price: product.category === 'gas'
+          ? product.basePrice
+          : Math.round(product.basePrice * (1 - customerDiscountPercent / 100)),
         stock: product.stock,
         imageUrl: product.imageUrl,
       }))
@@ -248,6 +253,7 @@ export function POSInterface() {
       name: product.name,
       category: product.category,
       basePrice: product.basePrice,
+      costPrice: product.costPrice,
       imageUrl: product.imageUrl,
     }, product.stock)
 
@@ -312,6 +318,7 @@ export function POSInterface() {
         quantity: item.quantity,
         price: item.discountedPrice,
         subtotal: item.subtotal,
+        costPrice: item.costPrice,
       })),
       paymentMethod: selectedPaymentMethod,
       cashReceived:
@@ -411,7 +418,7 @@ export function POSInterface() {
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">Kasir</p>
                 <h1 className="text-3xl font-semibold leading-tight text-primary lg:text-4xl">Ollapos</h1>
-     
+
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <Badge className="rounded-full border border-primary/10 bg-primary/5 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-primary">
@@ -422,7 +429,7 @@ export function POSInterface() {
                 </Button>
               </div>
             </div>
-              <div className="mt-8">
+            <div className="mt-8">
               <SalesSummary inline />
             </div>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -444,7 +451,7 @@ export function POSInterface() {
                 Lihat Pembayaran
               </Button>
             </div>
-     
+
           </div>
 
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
@@ -711,11 +718,10 @@ export function POSInterface() {
               </div>
               {cashReceivedAmount > 0 && (
                 <div
-                  className={`rounded-lg border px-4 py-3 text-center ${
-                    isCashShort
+                  className={`rounded-lg border px-4 py-3 text-center ${isCashShort
                       ? "border-warning bg-warning-subtle text-warning"
                       : "border-success bg-success-subtle text-success"
-                  }`}
+                    }`}
                 >
                   <p className="text-sm font-medium">
                     {isCashShort

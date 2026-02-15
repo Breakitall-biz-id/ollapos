@@ -10,6 +10,7 @@ export interface CartItem {
   quantity: number;
   basePrice: number;
   discountedPrice: number;
+  costPrice: number;
   subtotal: number;
   imageUrl?: string;
 }
@@ -30,6 +31,7 @@ export interface CartState {
     name: string;
     category: 'gas' | 'water' | 'general';
     basePrice: number;
+    costPrice: number;
     imageUrl?: string;
   }, stock?: number) => boolean;
   removeItem: (productId: string) => void;
@@ -70,18 +72,20 @@ export const useCartStore = create<CartState>()(
 
         set((prevState) => {
           const existingItem = prevState.items.find(item => item.productId === product.id);
-          const discountedPrice = Math.round(product.basePrice * (1 - prevState.customerDiscountPercent / 100));
+          const discountedPrice = product.category === 'gas'
+            ? product.basePrice
+            : Math.round(product.basePrice * (1 - prevState.customerDiscountPercent / 100));
 
           if (existingItem) {
             // If item exists, increment quantity
             const updatedItems = prevState.items.map(item =>
               item.productId === product.id
                 ? {
-                    ...item,
-                    quantity: item.quantity + 1,
-                    discountedPrice,
-                    subtotal: discountedPrice * (item.quantity + 1)
-                  }
+                  ...item,
+                  quantity: item.quantity + 1,
+                  discountedPrice,
+                  subtotal: discountedPrice * (item.quantity + 1)
+                }
                 : item
             );
 
@@ -100,6 +104,7 @@ export const useCartStore = create<CartState>()(
               quantity: 1,
               basePrice: product.basePrice,
               discountedPrice,
+              costPrice: product.costPrice,
               subtotal: discountedPrice,
               imageUrl: product.imageUrl
             };
@@ -145,10 +150,10 @@ export const useCartStore = create<CartState>()(
           const updatedItems = state.items.map(item =>
             item.productId === productId
               ? {
-                  ...item,
-                  quantity,
-                  subtotal: item.discountedPrice * quantity
-                }
+                ...item,
+                quantity,
+                subtotal: item.discountedPrice * quantity
+              }
               : item
           );
 
@@ -175,7 +180,9 @@ export const useCartStore = create<CartState>()(
 
           // Recalculate all item prices with new discount
           const updatedItems = state.items.map(item => {
-            const newDiscountedPrice = Math.round(item.basePrice * (1 - customerDiscountPercent / 100));
+            const newDiscountedPrice = item.category === 'gas'
+              ? item.basePrice
+              : Math.round(item.basePrice * (1 - customerDiscountPercent / 100));
             return {
               ...item,
               discountedPrice: newDiscountedPrice,

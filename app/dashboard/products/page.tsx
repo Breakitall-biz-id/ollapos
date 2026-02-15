@@ -78,6 +78,7 @@ interface Product {
   name: string
   category: "gas" | "water" | "general"
   basePrice: number
+  costPrice: number
   stock: number
   unit: string
   imageUrl?: string | null
@@ -149,6 +150,7 @@ export default function ProductsPage() {
     name: "",
     category: "gas" as "gas" | "water" | "general",
     basePrice: "",
+    costPrice: "",
     stock: "",
     unit: "pcs",
     description: "",
@@ -172,6 +174,7 @@ export default function ProductsPage() {
             name: entry.name,
             category: entry.category,
             basePrice: Number.isFinite(basePrice) ? basePrice : 0,
+            costPrice: Number(entry.costPrice ?? 0),
             stock: Number.isFinite(stockValue) ? stockValue : 0,
             unit: entry.unit || "pcs",
             description: entry.description || "",
@@ -233,6 +236,17 @@ export default function ProductsPage() {
         return
       }
 
+      const costPriceValue = Number(formData.costPrice)
+      if (!Number.isFinite(costPriceValue) || costPriceValue < 0) {
+        toast.error("Harga beli tidak valid")
+        return
+      }
+
+      if (costPriceValue > basePriceValue) {
+        toast.error("Harga jual harus lebih tinggi daripada harga beli")
+        return
+      }
+
       const stockValue = Number.parseInt(formData.stock, 10)
       if (!Number.isFinite(stockValue) || stockValue < 0) {
         toast.error("Stok produk tidak valid")
@@ -243,6 +257,7 @@ export default function ProductsPage() {
         name: formData.name.trim(),
         category: formData.category,
         basePrice: basePriceValue,
+        costPrice: costPriceValue,
         stock: stockValue,
         unit: formData.unit.trim() || "pcs",
         description: formData.description.trim(),
@@ -285,6 +300,7 @@ export default function ProductsPage() {
       name: product.name,
       category: product.category,
       basePrice: product.basePrice.toString(),
+      costPrice: product.costPrice.toString(),
       stock: product.stock.toString(),
       unit: product.unit,
       description: product.description || "",
@@ -328,6 +344,7 @@ export default function ProductsPage() {
       name: "",
       category: "gas",
       basePrice: "",
+      costPrice: "",
       stock: "",
       unit: "pcs",
       description: "",
@@ -423,12 +440,30 @@ export default function ProductsPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="costPrice" className="text-sm font-semibold text-primary">
+                    Harga Beli / Modal
+                  </Label>
+                  <Input
+                    id="costPrice"
+                    type="number"
+                    min="0"
+                    className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
+                    value={formData.costPrice}
+                    onChange={(event) =>
+                      setFormData((prev) => ({ ...prev, costPrice: event.target.value }))
+                    }
+                    required
+                  />
+                  <p className="text-xs text-secondary">Modal per unit digunakan sebagai dasar perhitungan profit.</p>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="basePrice" className="text-sm font-semibold text-primary">
-                    Harga Dasar
+                    Harga Jual (per unit)
                   </Label>
                   <Input
                     id="basePrice"
                     type="number"
+                    min={formData.costPrice || "0"}
                     className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
                     value={formData.basePrice}
                     onChange={(event) =>
@@ -444,6 +479,7 @@ export default function ProductsPage() {
                   <Input
                     id="stock"
                     type="number"
+                    min="0"
                     className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
                     value={formData.stock}
                     onChange={(event) =>
@@ -514,9 +550,7 @@ export default function ProductsPage() {
             <span className="size-2 rounded-xl bg-primary" aria-hidden />
             Ringkasan Produk
           </div>
-          <CardTitle className="text-2xl font-semibold text-primary">
-            Most Popular Products
-          </CardTitle>
+
           <p className="text-sm text-secondary">
             Daftar produk aktif berikut siap untuk diedit atau disesuaikan harganya kapan saja.
           </p>

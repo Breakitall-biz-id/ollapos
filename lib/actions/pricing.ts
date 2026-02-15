@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from '@/db';
-import { priceRule, customerType } from '@/db/schema/pos';
+import { priceRule, customerType, product } from '@/db/schema/pos';
 import { eq } from 'drizzle-orm';
 
 export async function calculateProductPrice(productId: string, customerTypeId: string, pangkalanId: string) {
@@ -30,8 +30,16 @@ export async function calculateProductPrice(productId: string, customerTypeId: s
       throw new Error('Customer type not found');
     }
 
+    // Lookup product category
+    const productRecord = await db
+      .select({ category: product.category })
+      .from(product)
+      .where(eq(product.id, productId))
+      .limit(1);
+
     const basePrice = Number(priceRuleRecord[0].basePrice);
-    const discountPercent = customerTypeRecord[0].discountPercent || 0;
+    const isGas = productRecord.length > 0 && productRecord[0].category === 'gas';
+    const discountPercent = isGas ? 0 : (customerTypeRecord[0].discountPercent || 0);
 
     // Calculate final price with discount
     const discountedPrice = basePrice * (1 - discountPercent / 100);

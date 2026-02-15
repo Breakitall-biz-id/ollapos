@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState } from "react"
 import {
   ChevronRight,
   DollarSign,
-  Package,
   Receipt,
   RefreshCw,
   ShoppingCart,
   TrendingUp,
+  CreditCard,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency } from "@/lib/utils"
 import { getSalesSummary, getTransactionsToday } from "@/lib/actions/transactions"
+import { getExpenseSummary } from "@/lib/actions/expenses"
 
 interface DailyTransaction {
   id: string
@@ -46,6 +47,10 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
     totalSales: 0,
     totalItems: 0,
     transactionCount: 0,
+    totalCost: 0,
+    totalProfit: 0,
+    totalExpenses: 0,
+    netProfit: 0,
     date: new Date().toISOString().split("T")[0],
   })
   const [transactions, setTransactions] = useState<DailyTransaction[]>([])
@@ -55,12 +60,22 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
   const loadData = async () => {
     setLoading(true)
     try {
-      const summaryResult = await getSalesSummary()
+      const [summaryResult, transactionsResult, expenseResult] = await Promise.all([
+        getSalesSummary(),
+        getTransactionsToday(),
+        getExpenseSummary(undefined, new Date(salesData.date), new Date(salesData.date))
+      ])
+
       if (summaryResult.success) {
-        setSalesData(summaryResult.data)
+        const expensesData = expenseResult.success ? expenseResult.data.totalExpenses : 0
+        const updatedData = {
+          ...summaryResult.data,
+          totalExpenses: expensesData,
+          netProfit: summaryResult.data.totalProfit - expensesData
+        }
+        setSalesData(updatedData)
       }
 
-      const transactionsResult = await getTransactionsToday()
       if (transactionsResult.success) {
         setTransactions(transactionsResult.data as DailyTransaction[])
       }
@@ -98,21 +113,28 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
         iconClassName: "bg-indigo-100 text-indigo-600",
       },
       {
+        id: "total-expenses",
+        label: "Total pengeluaran",
+        value: formatCurrency(salesData.totalExpenses),
+        icon: CreditCard,
+        iconClassName: "bg-red-100 text-red-600",
+      },
+      {
+        id: "net-profit",
+        label: "Profit bersih",
+        value: formatCurrency(salesData.netProfit),
+        icon: TrendingUp,
+        iconClassName: salesData.netProfit >= 0 ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600",
+      },
+      {
         id: "transactions",
         label: "Transaksi",
         value: salesData.transactionCount.toLocaleString("id-ID"),
         icon: ShoppingCart,
-        iconClassName: "bg-emerald-100 text-emerald-600",
-      },
-      {
-        id: "items-sold",
-        label: "Item terjual",
-        value: salesData.totalItems.toLocaleString("id-ID"),
-        icon: Package,
         iconClassName: "bg-sky-100 text-sky-600",
       },
     ],
-    [salesData.totalItems, salesData.totalSales, salesData.transactionCount]
+    [salesData.totalSales, salesData.netProfit, salesData.transactionCount, salesData.totalExpenses]
   )
 
   const renderTransactionList = () => {
@@ -212,7 +234,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {metrics.map((metric) => {
               const Icon = metric.icon
               return (
@@ -292,7 +314,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {metrics.map((metric) => {
             const Icon = metric.icon
             return (

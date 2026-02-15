@@ -1,0 +1,10 @@
+ALTER TABLE price_rule
+ADD COLUMN IF NOT EXISTS cost_price numeric(10, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE transaction_item
+ADD COLUMN IF NOT EXISTS cost_at_purchase numeric(10, 2) NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS profit numeric(10, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE transaction
+ADD COLUMN IF NOT EXISTS total_cost numeric(10, 2) NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS total_profit numeric(10, 2) NOT NULL DEFAULT 0;

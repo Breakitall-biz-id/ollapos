@@ -1,25 +1,61 @@
 'use server';
 
 import { db } from '@/db';
-import { transaction, transactionItem, inventory, product, customer, customerType, inventoryLog } from '@/db/schema/pos';
-import { eq, and, desc, inArray, gte, lt } from 'drizzle-orm';
-import { auth } from '@/lib/auth';
-import { cookies } from 'next/headers';
+import { transaction, transactionItem, inventory, customer, customerType, inventoryLog } from '@/db/schema/pos';
+import { eq, and, inArray, gte, lt } from 'drizzle-orm';
+import { resolvePangkalanContext } from '@/lib/server/pangkalan-context';
 
-// Helper function to get current session
-async function getCurrentSession() {
-  try {
-    const cookieStore = await cookies();
-    const session = await auth.api.getSession({
-      headers: {
-        cookie: cookieStore.toString()
-      }
-    });
-    return session;
-  } catch (error) {
-    console.error('Session error:', error);
-    return null;
+type ActionContextOptions = {
+  pangkalanId?: string | null;
+};
+
+type DateRangeInput = {
+  from?: string | Date | null;
+  to?: string | Date | null;
+};
+
+type GroupedTransaction = {
+  id: string;
+  totalAmount: number;
+  paymentMethod: string;
+  status: string;
+  customerName: string | null;
+  customerDiscountPercent: number;
+  itemCount: number;
+  createdAt: Date;
+};
+
+const toStartOfDay = (value: Date) => {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const toEndOfDay = (value: Date) => {
+  const date = new Date(value);
+  date.setHours(23, 59, 59, 999);
+  return date;
+};
+
+const resolveDateRange = (range?: DateRangeInput) => {
+  const now = new Date();
+  let start = range?.from ? toStartOfDay(new Date(range.from)) : toStartOfDay(now);
+  let end = range?.to ? toEndOfDay(new Date(range.to)) : toEndOfDay(now);
+
+  if (end < start) {
+    const previousStart = start;
+    start = toStartOfDay(new Date(range?.to ?? now));
+    end = toEndOfDay(new Date(previousStart));
   }
+
+  const endExclusive = toStartOfDay(new Date(end));
+  endExclusive.setDate(endExclusive.getDate() + 1);
+
+  return { start, end, endExclusive };
+};
+
+async function getContext(options?: ActionContextOptions) {
+  return resolvePangkalanContext(options);
 }
 
 export async function createTransaction(data: {
@@ -29,17 +65,19 @@ export async function createTransaction(data: {
     quantity: number;
     price: number;
     subtotal: number;
+    costPrice?: number;
   }>;
   paymentMethod: 'cash' | 'qris' | 'kasbon';
   cashReceived?: number;
-}) {
+}, options?: ActionContextOptions) {
   try {
-    // TEMPORARY: Hardcode pangkalan ID to test database connection
-    // TODO: Fix session authentication later
-    const hardcodedPangkalanId = 'pangkalan-2kjqYYJAQ5I_q-6ti14Ta';
+    const { pangkalan } = await getContext(options);
+    const toMoney = (value: number) => Number(Number(value).toFixed(2));
 
-    // Calculate total
-    const total = data.items.reduce((sum, item) => sum + item.subtotal, 0);
+    // Calculate totals
+    const total = toMoney(data.items.reduce((sum, item) => sum + item.subtotal, 0));
+    let totalCost = 0;
+    let totalProfit = 0;
 
     // Generate transaction ID
     const transactionId = `tx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -49,9 +87,11 @@ export async function createTransaction(data: {
       // Create transaction record
       const newTransaction = await tx.insert(transaction).values({
         id: transactionId,
-        pangkalanId: hardcodedPangkalanId,
+        pangkalanId: pangkalan.id,
         customerId: data.customerId || null,
         totalAmount: total,
+        totalCost: 0,
+        totalProfit: 0,
         paymentMethod: data.paymentMethod,
         cashReceived: data.cashReceived || null,
         changeAmount: data.cashReceived ? data.cashReceived - total : null,
@@ -68,13 +108,21 @@ export async function createTransaction(data: {
           subtotal: item.subtotal
         });
 
+        const unitCost = toMoney(item.costPrice ?? 0);
+        const lineCost = toMoney(unitCost * item.quantity);
+        const lineProfit = toMoney((item.price - unitCost) * item.quantity);
+        totalCost += lineCost;
+        totalProfit += lineProfit;
+
         await tx.insert(transactionItem).values({
           id: `txi-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           transactionId,
           productId: item.productId,
           qty: item.quantity || 1,
           priceAtPurchase: item.price || 0,
-          subtotal: item.subtotal || 0
+          costAtPurchase: unitCost,
+          subtotal: item.subtotal || 0,
+          profit: lineProfit,
         });
 
         // Update inventory (decrease stock filled, increase stock empty)
@@ -83,7 +131,7 @@ export async function createTransaction(data: {
           .from(inventory)
           .where(and(
             eq(inventory.productId, item.productId),
-            eq(inventory.pangkalanId, hardcodedPangkalanId)
+            eq(inventory.pangkalanId, pangkalan.id)
           ))
           .limit(1);
 
@@ -102,13 +150,13 @@ export async function createTransaction(data: {
             })
             .where(and(
               eq(inventory.productId, item.productId),
-              eq(inventory.pangkalanId, hardcodedPangkalanId)
+              eq(inventory.pangkalanId, pangkalan.id)
             ));
 
           // Create inventory log
           await tx.insert(inventoryLog).values({
             id: `inv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            pangkalanId: hardcodedPangkalanId,
+            pangkalanId: pangkalan.id,
             productId: item.productId,
             qtyChangeFilled: -item.quantity, // Decrease filled stock
             qtyChangeEmpty: item.quantity,   // Increase empty stock
@@ -120,7 +168,18 @@ export async function createTransaction(data: {
         }
       }
 
-      return newTransaction[0];
+      const totalsPayload = {
+        totalCost: toMoney(totalCost),
+        totalProfit: toMoney(totalProfit),
+        changeAmount: data.cashReceived ? toMoney(data.cashReceived - total) : null,
+      };
+
+      await tx
+        .update(transaction)
+        .set(totalsPayload)
+        .where(eq(transaction.id, transactionId));
+
+      return { ...newTransaction[0], ...totalsPayload };
     });
 
     return {
@@ -144,27 +203,20 @@ export async function createTransaction(data: {
   }
 }
 
-export async function getTransactionsToday() {
+export async function getTransactionsToday(range?: DateRangeInput) {
   try {
-    // TEMPORARY: Hardcode pangkalan ID to test database connection
-    // TODO: Fix session authentication later
-    const hardcodedPangkalanId = 'pangkalan-2kjqYYJAQ5I_q-6ti14Ta';
-
-    // Get today's transactions
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const { pangkalan } = await getContext();
+    const { start, endExclusive, end } = resolveDateRange(range);
 
     // Get transaction IDs for today's transactions first
     const todayTxIds = await db
       .select()
       .from(transaction)
       .where(and(
-        eq(transaction.pangkalanId, hardcodedPangkalanId),
+        eq(transaction.pangkalanId, pangkalan.id),
         eq(transaction.status, 'paid'),
-        gte(transaction.createdAt, today),
-        lt(transaction.createdAt, tomorrow)
+        gte(transaction.createdAt, start),
+        lt(transaction.createdAt, endExclusive)
       ));
 
     if (todayTxIds.length === 0) {
@@ -187,7 +239,7 @@ export async function getTransactionsToday() {
       .where(inArray(transaction.id, txIds));
 
     // Group by transaction and aggregate item counts
-    const groupedTransactions = fullTransactions.reduce((acc, row) => {
+    const groupedTransactions = fullTransactions.reduce<Record<string, GroupedTransaction>>((acc, row) => {
       const rowId = row.transaction?.id || '';
       if (!acc[rowId]) {
         acc[rowId] = {
@@ -203,7 +255,7 @@ export async function getTransactionsToday() {
       }
       acc[rowId].itemCount += row.transaction_item?.qty || 0;
       return acc;
-    }, {} as Record<string, any>);
+    }, {});
 
     const todayTransactions = Object.values(groupedTransactions);
 
@@ -211,7 +263,13 @@ export async function getTransactionsToday() {
 
     return {
       success: true,
-      data: todayTransactions
+      data: todayTransactions,
+      meta: {
+        range: {
+          from: start.toISOString(),
+          to: end.toISOString(),
+        },
+      },
     };
 
   } catch (error) {
@@ -224,27 +282,20 @@ export async function getTransactionsToday() {
   }
 }
 
-export async function getSalesSummary() {
+export async function getSalesSummary(range?: DateRangeInput) {
   try {
-    // TEMPORARY: Hardcode pangkalan ID to test database connection
-    // TODO: Fix session authentication later
-    const hardcodedPangkalanId = 'pangkalan-2kjqYYJAQ5I_q-6ti14Ta';
-
-    // Get today's date
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const { pangkalan } = await getContext();
+    const { start, end, endExclusive } = resolveDateRange(range);
 
     // Get today's transactions (exact same as working debug API)
     const todayTransactions = await db
       .select()
       .from(transaction)
       .where(and(
-        eq(transaction.pangkalanId, hardcodedPangkalanId),
+        eq(transaction.pangkalanId, pangkalan.id),
         eq(transaction.status, 'paid'),
-        gte(transaction.createdAt, today),
-        lt(transaction.createdAt, tomorrow)
+        gte(transaction.createdAt, start),
+        lt(transaction.createdAt, endExclusive)
       ));
 
     console.log('Today transactions found:', todayTransactions.length);
@@ -256,6 +307,16 @@ export async function getSalesSummary() {
     const totalSales = todayTransactions.reduce((sum, tx) => {
       const amount = typeof tx.totalAmount === 'string' ? parseFloat(tx.totalAmount) : tx.totalAmount;
       return sum + (amount || 0);
+    }, 0);
+
+    const totalCost = todayTransactions.reduce((sum, tx) => {
+      const value = typeof tx.totalCost === 'string' ? parseFloat(tx.totalCost) : tx.totalCost;
+      return sum + (value || 0);
+    }, 0);
+
+    const totalProfit = todayTransactions.reduce((sum, tx) => {
+      const value = typeof tx.totalProfit === 'string' ? parseFloat(tx.totalProfit) : tx.totalProfit;
+      return sum + (value || 0);
     }, 0);
 
     // Get total items from transaction_item table
@@ -278,8 +339,14 @@ export async function getSalesSummary() {
         totalSales,
         totalItems,
         transactionCount,
-        date: today.toISOString().split('T')[0]
-      }
+        totalCost,
+        totalProfit,
+        date: start.toISOString().split('T')[0],
+        range: {
+          from: start.toISOString(),
+          to: end.toISOString(),
+        },
+      },
     };
 
   } catch (error) {
@@ -291,7 +358,13 @@ export async function getSalesSummary() {
         totalSales: 0,
         totalItems: 0,
         transactionCount: 0,
-        date: new Date().toISOString().split('T')[0]
+        totalCost: 0,
+        totalProfit: 0,
+        date: new Date().toISOString().split('T')[0],
+        range: {
+          from: new Date().toISOString(),
+          to: new Date().toISOString(),
+        },
       }
     };
   }

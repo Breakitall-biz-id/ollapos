@@ -17,6 +17,7 @@ export type ProductListItem = {
   imageUrl: string | null;
   createdAt: string | null;
   basePrice: number;
+  costPrice: number;
   stock: number;
   stockEmpty: number;
   isGlobal: boolean;
@@ -59,6 +60,7 @@ export async function getProductsForCurrentPangkalan(category?: string): Promise
         pangkalanId: product.pangkalanId,
         createdAt: product.createdAt,
         basePrice: priceRule.basePrice,
+        costPrice: priceRule.costPrice,
         stockFilled: inventory.stockFilled,
         stockEmpty: inventory.stockEmpty,
       })
@@ -95,6 +97,7 @@ export async function getProductsForCurrentPangkalan(category?: string): Promise
       imageUrl: record.imageUrl,
       createdAt: record.createdAt ? record.createdAt.toISOString() : null,
       basePrice: record.basePrice ? Number(record.basePrice) : 0,
+      costPrice: record.costPrice ? Number(record.costPrice) : 0,
       stock: typeof record.stockFilled === 'number'
         ? record.stockFilled
         : Number(record.stockFilled ?? 0),
@@ -125,6 +128,7 @@ type UpsertProductInput = {
   name: string;
   category: ProductCategory;
   basePrice: number;
+  costPrice: number;
   stock?: number;
   imageUrl?: string | null;
   description?: string | null;
@@ -176,6 +180,7 @@ export async function createProductForCurrentPangkalan(input: UpsertProductInput
     }
 
     const basePrice = normalizePrice(input.basePrice);
+    const costPrice = normalizePrice(input.costPrice);
     const stockFilled = normalizeStock(input.stock);
     const now = new Date();
     const unit = (input.unit ?? 'pcs').trim() || 'pcs';
@@ -214,6 +219,7 @@ export async function createProductForCurrentPangkalan(input: UpsertProductInput
         pangkalanId: currentPangkalan.id,
         productId,
         basePrice: basePrice.toFixed(2),
+        costPrice: costPrice.toFixed(2),
         updatedAt: now,
       });
 
@@ -240,6 +246,7 @@ export async function createProductForCurrentPangkalan(input: UpsertProductInput
         name,
         category: input.category,
         basePrice,
+        costPrice,
         stock: createdProduct.stock,
         unit,
         imageUrl: input.imageUrl ?? null,
@@ -275,6 +282,7 @@ export async function updateProductForCurrentPangkalan(
     }
 
     const basePrice = normalizePrice(input.basePrice);
+    const costPrice = normalizePrice(input.costPrice);
     const stockFilled = normalizeStock(input.stock);
 
     const existingProduct = await db
@@ -304,6 +312,7 @@ export async function updateProductForCurrentPangkalan(
         .update(priceRule)
         .set({
           basePrice: basePrice.toFixed(2),
+          costPrice: costPrice.toFixed(2),
           updatedAt: new Date(),
         })
         .where(

@@ -13,6 +13,7 @@ import {
   IconSearch,
   IconChartBar,
   IconTruckDelivery,
+  IconReceipt,
 } from "@tabler/icons-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -54,6 +55,11 @@ const staticData = {
       title: "Harga",
       url: "/dashboard/pricing",
       icon: IconTag,
+    },
+    {
+      title: "Pengeluaran",
+      url: "/dashboard/expenses",
+      icon: IconReceipt,
     },
     {
       title: "Laporan",

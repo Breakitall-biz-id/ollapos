@@ -42,6 +42,18 @@ export const InventoryLogType = {
     RETURN: 'return'
 } as const;
 
+export const ExpenseCategory = {
+    OPERATIONAL: 'operational',
+    UTILITIES: 'utilities',
+    MAINTENANCE: 'maintenance',
+    SALARY: 'salary',
+    MARKETING: 'marketing',
+    EQUIPMENT: 'equipment',
+    RENT: 'rent',
+    TAX: 'tax',
+    OTHER: 'other'
+} as const;
+
 // Pangkalan Profile (Store/Toko)
 export const pangkalan = pgTable("pangkalan", {
     id: text("id").primaryKey(),
@@ -104,6 +116,7 @@ export const priceRule = pgTable("price_rule", {
     pangkalanId: text("pangkalan_id").notNull().references(() => pangkalan.id, { onDelete: "cascade" }),
     productId: text("product_id").notNull().references(() => product.id, { onDelete: "cascade" }),
     basePrice: decimal("base_price", { precision: 10, scale: 2 }).notNull(), // Base/Regular price
+    costPrice: decimal("cost_price", { precision: 10, scale: 2 }).notNull().default("0"),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
     uniqueProductPerPangkalan: unique("price_rule_product_pangkalan_unique").on(table.productId, table.pangkalanId),
@@ -128,6 +141,8 @@ export const transaction = pgTable("transaction", {
     pangkalanId: text("pangkalan_id").notNull().references(() => pangkalan.id, { onDelete: "cascade" }),
     customerId: text("customer_id").references(() => customer.id, { onDelete: "set null" }),
     totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+    totalCost: decimal("total_cost", { precision: 10, scale: 2 }).notNull().default("0"),
+    totalProfit: decimal("total_profit", { precision: 10, scale: 2 }).notNull().default("0"),
     paymentMethod: text("payment_method").notNull(), // cash, qris, debt
     cashReceived: decimal("cash_received", { precision: 10, scale: 2 }),
     changeAmount: decimal("change_amount", { precision: 10, scale: 2 }),
@@ -147,7 +162,9 @@ export const transactionItem = pgTable("transaction_item", {
     productId: text("product_id").notNull().references(() => product.id, { onDelete: "cascade" }),
     qty: integer("qty").notNull(),
     priceAtPurchase: decimal("price_at_purchase", { precision: 10, scale: 2 }).notNull(),
+    costAtPurchase: decimal("cost_at_purchase", { precision: 10, scale: 2 }).notNull().default("0"),
     subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+    profit: decimal("profit", { precision: 10, scale: 2 }).notNull().default("0"),
 }, (table) => ({
     transactionIdx: index("transaction_item_transaction_idx").on(table.transactionId),
 }));
@@ -167,6 +184,34 @@ export const inventoryLog = pgTable("inventory_log", {
     pangkalanProductIdx: index("inventory_log_pangkalan_product_idx").on(table.pangkalanId, table.productId, table.createdAt),
 }));
 
+// Expense Categories (Predefined categories with user-friendly names)
+export const expenseCategory = pgTable("expense_category", {
+    id: text("id").primaryKey(), // Will use the enum values as IDs
+    name: text("name").notNull().unique(), // Display name for the category
+    description: text("description"),
+    color: text("color").notNull().default("#6B7280"), // Hex color for UI
+    icon: text("icon").notNull().default("FileText"), // Icon name from lucide-react
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Expenses
+export const expense = pgTable("expense", {
+    id: text("id").primaryKey(),
+    pangkalanId: text("pangkalan_id").notNull().references(() => pangkalan.id, { onDelete: "cascade" }),
+    categoryId: text("category_id").notNull().references(() => expenseCategory.id, { onDelete: "restrict" }),
+    description: text("description").notNull(),
+    amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+    receiptNumber: text("receipt_number").unique(),
+    notes: text("notes"),
+    expenseDate: timestamp("expense_date").defaultNow().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+    pangkalanDateIdx: index("expense_pangkalan_date_idx").on(table.pangkalanId, table.expenseDate),
+    categoryIdx: index("expense_category_idx").on(table.categoryId),
+    receiptNumberIdx: index("expense_receipt_number_idx").on(table.receiptNumber),
+}));
+
 // Relations
 export const pangkalanRelations = relations(pangkalan, ({ one, many }) => ({
     user: one(user, {
@@ -179,6 +224,7 @@ export const pangkalanRelations = relations(pangkalan, ({ one, many }) => ({
     inventory: many(inventory),
     transactions: many(transaction),
     inventoryLogs: many(inventoryLog),
+    expenses: many(expense),
 }));
 
 export const customerTypeRelations = relations(customerType, ({ many }) => ({
@@ -270,6 +316,21 @@ export const inventoryLogRelations = relations(inventoryLog, ({ one }) => ({
     }),
 }));
 
+export const expenseCategoryRelations = relations(expenseCategory, ({ many }) => ({
+    expenses: many(expense),
+}));
+
+export const expenseRelations = relations(expense, ({ one }) => ({
+    pangkalan: one(pangkalan, {
+        fields: [expense.pangkalanId],
+        references: [pangkalan.id],
+    }),
+    category: one(expenseCategory, {
+        fields: [expense.categoryId],
+        references: [expenseCategory.id],
+    }),
+}));
+
 // Types for TypeScript
 export type Pangkalan = typeof pangkalan.$inferSelect;
 export type NewPangkalan = typeof pangkalan.$inferInsert;
@@ -297,3 +358,9 @@ export type NewTransactionItem = typeof transactionItem.$inferInsert;
 
 export type InventoryLog = typeof inventoryLog.$inferSelect;
 export type NewInventoryLog = typeof inventoryLog.$inferInsert;
+
+export type ExpenseCategory = typeof expenseCategory.$inferSelect;
+export type NewExpenseCategory = typeof expenseCategory.$inferInsert;
+
+export type Expense = typeof expense.$inferSelect;
+export type NewExpense = typeof expense.$inferInsert;

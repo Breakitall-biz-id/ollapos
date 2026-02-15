@@ -115,9 +115,9 @@ export default function PricingPage() {
 		setFilteredRules(filtered)
 	}, [priceRules, searchTerm, categoryFilter, typeFilter])
 
-	const calculateFinalPrice = (basePrice: number, typeId: string) => {
+	const calculateFinalPrice = (basePrice: number, typeId: string, productCategory: string) => {
 		const customerType = customerTypes.find((type) => type.id === typeId)
-		const discountPercent = customerType?.discountPercent ?? 0
+		const discountPercent = productCategory === 'gas' ? 0 : (customerType?.discountPercent ?? 0)
 		const discountedPrice = basePrice * (1 - discountPercent / 100)
 
 		return {
@@ -273,7 +273,7 @@ export default function PricingPage() {
 								</TableHeader>
 								<TableBody>
 									{filteredRules.map((rule) => {
-										const pricing = calculateFinalPrice(rule.basePrice, rule.typeId)
+										const pricing = calculateFinalPrice(rule.basePrice, rule.typeId, rule.productCategory)
 										return (
 											<TableRow key={rule.id} className="border-medium/30 transition hover:bg-surface-secondary/60">
 												<TableCell>
