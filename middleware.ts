@@ -16,7 +16,8 @@ export function middleware(request: NextRequest) {
     }
 
     // For all other routes, check for session
-    const sessionToken = request.cookies.get("better-auth.session_token")?.value;
+    const sessionToken = request.cookies.get("better-auth.session_token")?.value ||
+        request.cookies.get("__Secure-better-auth.session_token")?.value;
 
     if (!sessionToken && pathname !== "/") {
         // Redirect to sign-in if no session and trying to access protected routes
