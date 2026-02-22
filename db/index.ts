@@ -1,9 +1,12 @@
 import 'dotenv/config';
-import { drizzle } from 'drizzle-orm/node-postgres';
+import { neon } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/neon-http';
 import * as authSchema from './schema/auth';
 import * as posSchema from './schema/pos';
 
-export const db = drizzle(process.env.DATABASE_URL!, {
+const sql = neon(process.env.DATABASE_URL!);
+
+export const db = drizzle(sql, {
     schema: { ...authSchema, ...posSchema }
 });
 

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
+import { useCachedData } from '@/lib/stores/data-cache'
 import { MapPin, Phone, Mail, Users, Plus, Edit2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -101,8 +102,21 @@ export default function CustomersPage() {
     notes: '',
   })
 
+  const customersCache = useCachedData<typeof customers>('customers')
+  const didInit = useRef(false)
+
   // Load customers and types
   useEffect(() => {
+    if (!didInit.current && customersCache.data && customersCache.isFresh) {
+      didInit.current = true
+      setCustomers(customersCache.data)
+      setFilteredCustomers(customersCache.data)
+      setLoading(false)
+      // Still load types since they're lightweight
+      getCustomerTypes().then(r => { if (r.success && r.data) setCustomerTypes(r.data) })
+      return
+    }
+    didInit.current = true
     loadData()
   }, [])
 
@@ -116,6 +130,7 @@ export default function CustomersPage() {
       if (customersResult.success && customersResult.data) {
         setCustomers(customersResult.data)
         setFilteredCustomers(customersResult.data)
+        customersCache.setData(customersResult.data)
       }
 
       if (typesResult.success && typesResult.data) {

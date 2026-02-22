@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
+import { useCachedData } from "@/lib/stores/data-cache"
 import {
   CalendarDays,
   Droplet,
@@ -161,7 +162,18 @@ export default function ProductsPage() {
     description: "",
   })
 
+  const productsCache = useCachedData<Product[]>('products')
+  const didInit = useRef(false)
+
   useEffect(() => {
+    if (!didInit.current && productsCache.data && productsCache.isFresh) {
+      didInit.current = true
+      setProducts(productsCache.data)
+      setFilteredProducts(productsCache.data)
+      setLoading(false)
+      return
+    }
+    didInit.current = true
     loadProducts()
   }, [])
 
@@ -190,6 +202,7 @@ export default function ProductsPage() {
         })
         setProducts(mappedProducts)
         setFilteredProducts(mappedProducts)
+        productsCache.setData(mappedProducts)
       }
     } catch (error) {
       console.error(error)

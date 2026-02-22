@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
+import { useCachedData } from "@/lib/stores/data-cache"
 import { ArrowUpCircle, ClipboardList, Loader2, PackagePlus, Recycle } from "lucide-react"
 import { toast } from "sonner"
 
@@ -46,7 +47,19 @@ export default function InventoryPage() {
 	const [capitalBalance, setCapitalBalance] = useState(0)
 	const selectedProductIsReturnable = selectedProduct ? isReturnableProduct(selectedProduct.category) : false
 
+	const inventoryCache = useCachedData<typeof products>('inventory')
+	const didInit = useRef(false)
+
 	useEffect(() => {
+		if (!didInit.current && inventoryCache.data && inventoryCache.isFresh) {
+			didInit.current = true
+			setProducts(inventoryCache.data)
+			setLoading(false)
+			// Still load capital balance
+			getActivePangkalanCapitalBalance().then(r => { if (r.success) setCapitalBalance(r.data.balance) })
+			return
+		}
+		didInit.current = true
 		const loadInventory = async () => {
 			try {
 				setLoading(true)
@@ -56,6 +69,7 @@ export default function InventoryPage() {
 				])
 				if (response.success && Array.isArray(response.data)) {
 					setProducts(response.data)
+					inventoryCache.setData(response.data)
 				} else {
 					toast.error(response.error ?? "Gagal memuat data stok")
 				}

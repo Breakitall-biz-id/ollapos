@@ -1,5 +1,6 @@
 "use server"
 
+import { cache } from "react"
 import { cookies } from "next/headers"
 import { and, eq } from "drizzle-orm"
 
@@ -30,7 +31,7 @@ export type PangkalanContextOptions = {
 	pangkalanId?: string | null
 }
 
-async function getCurrentSession() {
+const getCurrentSession = cache(async () => {
 	try {
 		const cookieStore = await cookies()
 		return await auth.api.getSession({
@@ -42,7 +43,7 @@ async function getCurrentSession() {
 		console.error("Session error:", error)
 		return null
 	}
-}
+})
 
 export async function resolvePangkalanContext(options?: PangkalanContextOptions): Promise<PangkalanContext> {
 	const session = await getCurrentSession()
