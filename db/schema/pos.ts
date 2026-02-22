@@ -74,7 +74,7 @@ export const customerType = pgTable("customer_type", {
     displayName: text("display_name").notNull(),
     discountPercent: integer("discount_percent").default(0).notNull(),
     color: text("color").notNull(), // hex color for UI
-    minSpent: decimal("min_spent", { precision: 10, scale: 2 }).default(0), // minimum spending to reach this tier
+    minSpent: decimal("min_spent", { precision: 10, scale: 2 }).default("0"), // minimum spending to reach this tier
     createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -87,7 +87,7 @@ export const customer = pgTable("customer", {
     phone: text("phone"),
     email: text("email"),
     address: text("address"),
-    totalSpent: decimal("total_spent", { precision: 10, scale: 2 }).default(0),
+    totalSpent: decimal("total_spent", { precision: 10, scale: 2 }).default("0"),
     notes: text("notes"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -120,6 +120,20 @@ export const priceRule = pgTable("price_rule", {
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
     uniqueProductPerPangkalan: unique("price_rule_product_pangkalan_unique").on(table.productId, table.pangkalanId),
+}));
+
+// Product Tier Pricing (per-product per-tier discounts)
+export const productTierPricing = pgTable("product_tier_pricing", {
+    id: text("id").primaryKey(),
+    pangkalanId: text("pangkalan_id").notNull().references(() => pangkalan.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull().references(() => product.id, { onDelete: "cascade" }),
+    customerTypeId: text("customer_type_id").notNull().references(() => customerType.id, { onDelete: "cascade" }),
+    discountType: text("discount_type").notNull(), // 'percentage' or 'fixed'
+    discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+    uniqueProductTypePangkalan: unique("product_tier_pricing_unique").on(table.productId, table.customerTypeId, table.pangkalanId),
+    pangkalanIdx: index("product_tier_pricing_pangkalan_idx").on(table.pangkalanId),
 }));
 
 // Inventory
@@ -212,6 +226,18 @@ export const expense = pgTable("expense", {
     receiptNumberIdx: index("expense_receipt_number_idx").on(table.receiptNumber),
 }));
 
+// Capital Entries (manual modal masuk/keluar)
+export const capitalEntry = pgTable("capital_entry", {
+    id: text("id").primaryKey(),
+    pangkalanId: text("pangkalan_id").notNull().references(() => pangkalan.id, { onDelete: "cascade" }),
+    type: text("type").notNull(), // in | out
+    amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+    pangkalanDateIdx: index("capital_entry_pangkalan_date_idx").on(table.pangkalanId, table.createdAt),
+}));
+
 // Relations
 export const pangkalanRelations = relations(pangkalan, ({ one, many }) => ({
     user: one(user, {
@@ -225,10 +251,12 @@ export const pangkalanRelations = relations(pangkalan, ({ one, many }) => ({
     transactions: many(transaction),
     inventoryLogs: many(inventoryLog),
     expenses: many(expense),
+    capitalEntries: many(capitalEntry),
 }));
 
 export const customerTypeRelations = relations(customerType, ({ many }) => ({
     customers: many(customer),
+    productTierPricings: many(productTierPricing),
 }));
 
 export const customerRelations = relations(customer, ({ one, many }) => ({
@@ -249,6 +277,7 @@ export const productRelations = relations(product, ({ one, many }) => ({
         references: [pangkalan.id],
     }),
     priceRules: many(priceRule),
+    productTierPricings: many(productTierPricing),
     inventory: many(inventory),
     transactionItems: many(transactionItem),
     inventoryLogs: many(inventoryLog),
@@ -262,6 +291,21 @@ export const priceRuleRelations = relations(priceRule, ({ one }) => ({
     product: one(product, {
         fields: [priceRule.productId],
         references: [product.id],
+    }),
+}));
+
+export const productTierPricingRelations = relations(productTierPricing, ({ one }) => ({
+    pangkalan: one(pangkalan, {
+        fields: [productTierPricing.pangkalanId],
+        references: [pangkalan.id],
+    }),
+    product: one(product, {
+        fields: [productTierPricing.productId],
+        references: [product.id],
+    }),
+    customerType: one(customerType, {
+        fields: [productTierPricing.customerTypeId],
+        references: [customerType.id],
     }),
 }));
 
@@ -331,6 +375,13 @@ export const expenseRelations = relations(expense, ({ one }) => ({
     }),
 }));
 
+export const capitalEntryRelations = relations(capitalEntry, ({ one }) => ({
+    pangkalan: one(pangkalan, {
+        fields: [capitalEntry.pangkalanId],
+        references: [pangkalan.id],
+    }),
+}));
+
 // Types for TypeScript
 export type Pangkalan = typeof pangkalan.$inferSelect;
 export type NewPangkalan = typeof pangkalan.$inferInsert;
@@ -364,3 +415,9 @@ export type NewExpenseCategory = typeof expenseCategory.$inferInsert;
 
 export type Expense = typeof expense.$inferSelect;
 export type NewExpense = typeof expense.$inferInsert;
+
+export type ProductTierPricing = typeof productTierPricing.$inferSelect;
+export type NewProductTierPricing = typeof productTierPricing.$inferInsert;
+
+export type CapitalEntry = typeof capitalEntry.$inferSelect;
+export type NewCapitalEntry = typeof capitalEntry.$inferInsert;

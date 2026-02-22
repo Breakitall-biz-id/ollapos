@@ -6,15 +6,10 @@ import {
     priceRule,
     inventory,
     user,
-    account,
-    type NewPangkalan,
-    type NewCustomer,
-    type NewProduct,
-    type NewPriceRule,
-    type NewInventory,
-    type NewAccount
+    account
 } from '../db';
-import { nanoid } from 'nanoid/non-secure';
+import { eq, and } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import bcrypt from 'bcryptjs';
 
 async function seed() {
@@ -43,7 +38,7 @@ async function seed() {
             await db.insert(user).values(newUser);
 
             // Create account for Better Auth
-            const newAccount: NewAccount = {
+            const newAccount = {
                 id: nanoid(),
                 accountId: newUser.id,
                 providerId: 'credential',
@@ -72,7 +67,7 @@ async function seed() {
                 const password = 'password123';
                 const hashedPassword = await bcrypt.hash(password, 10);
 
-                const newAccount: NewAccount = {
+                const newAccount = {
                     id: nanoid(),
                     accountId: pangkalanUser.id,
                     providerId: 'credential',
@@ -92,7 +87,7 @@ async function seed() {
         }
 
         // 2. Create pangkalan profile
-        const pangkalanData: NewPangkalan = {
+        const pangkalanData = {
             id: nanoid(),
             userId: pangkalanUser.id,
             name: 'Pangkalan Bude Sri',
@@ -115,7 +110,7 @@ async function seed() {
         }
 
         // 3. Create global products (LPG)
-        const globalProducts: NewProduct[] = [
+        const globalProducts = [
             {
                 id: nanoid(),
                 name: 'Gas LPG 3kg',
@@ -151,7 +146,7 @@ async function seed() {
         console.log('✅ Created global LPG products');
 
         // 4. Create local products
-        const localProducts: NewProduct[] = [
+        const localProducts = [
             {
                 id: nanoid(),
                 name: 'Air Galon',
@@ -189,14 +184,14 @@ async function seed() {
                 .limit(1);
 
             if (existingPriceRule.length === 0) {
-                const priceData: NewPriceRule = {
+                const priceData = {
                     id: nanoid(),
                     pangkalanId: pangkalanRecord.id,
                     productId: productRecord.id,
                     priceRegular: productRecord.category === 'gas' ? 25000 : 15000,
                     priceVip: productRecord.category === 'gas' ? 23000 : 14000,
                     updatedAt: new Date()
-                };
+                } as any;
                 await db.insert(priceRule).values(priceData);
             }
         }
@@ -210,7 +205,7 @@ async function seed() {
                 .limit(1);
 
             if (existingInventory.length === 0) {
-                const inventoryData: NewInventory = {
+                const inventoryData = {
                     id: nanoid(),
                     pangkalanId: pangkalanRecord.id,
                     productId: productRecord.id,
@@ -224,7 +219,7 @@ async function seed() {
         console.log('✅ Created inventory');
 
         // 8. Create sample customers
-        const customers: NewCustomer[] = [
+        const customers = [
             {
                 id: nanoid(),
                 pangkalanId: pangkalanRecord.id,
@@ -232,7 +227,7 @@ async function seed() {
                 isVip: true,
                 phone: '0813-9876-5432',
                 createdAt: new Date()
-            },
+            } as any,
             {
                 id: nanoid(),
                 pangkalanId: pangkalanRecord.id,
@@ -240,7 +235,7 @@ async function seed() {
                 isVip: false,
                 phone: '0822-1111-2222',
                 createdAt: new Date()
-            },
+            } as any,
             {
                 id: nanoid(),
                 pangkalanId: pangkalanRecord.id,
@@ -248,7 +243,7 @@ async function seed() {
                 isVip: true,
                 phone: '0818-5555-6666',
                 createdAt: new Date()
-            }
+            } as any
         ];
 
         for (const customerData of customers) {
@@ -270,10 +265,6 @@ async function seed() {
         process.exit(1);
     }
 }
-
-// Import required functions
-import { eq, and } from 'drizzle-orm';
-import { nanoid } from 'nanoid/non-secure';
 
 // Run seed
 seed().then(() => process.exit(0));

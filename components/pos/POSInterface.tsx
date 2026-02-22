@@ -1,40 +1,46 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
+  Clock3,
+  ChevronDown,
   DollarSign,
-  Droplet,
   FileText,
-  Flame,
   Loader2,
-  Package,
+  Plus,
   QrCode,
   Search,
   ShoppingCart,
   Users,
+  User,
+  RefreshCw,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { NumericInput } from "@/components/ui/numeric-input"
+import { PageLoadingState } from "@/components/page-loading-state"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { CartItemRow } from "@/components/pos/CartItemRow"
 import { CategoryOption, CategoryTabs } from "@/components/pos/CategoryTabs"
 import { ProductCard, type DisplayProduct } from "@/components/pos/ProductCard"
 import { ReceiptModal } from "@/components/pos/ReceiptModal"
-import { SalesSummary } from "@/components/pos/SalesSummary"
 import { getCustomersForCurrentPangkalan } from "@/lib/actions/customers"
+import { getActivePangkalanCapitalBalance } from "@/lib/actions/capital"
 import { getProductsForCurrentPangkalan } from "@/lib/actions/products"
 import { createTransaction } from "@/lib/actions/transactions"
+import { getProductTierPricings } from "@/lib/actions/product-tier-pricing"
+import { resolveDiscountClient, type ProductTierPricingItem } from "@/lib/discount-utils"
 import { useCartStore } from "@/lib/stores/cart-store"
 import { formatCurrency } from "@/lib/utils"
 
@@ -63,9 +69,10 @@ interface Customer {
 }
 
 const CATEGORY_OPTIONS: CategoryOption[] = [
-  { id: "gas", label: "Gas LPG", icon: Flame },
-  { id: "water", label: "Air Galon", icon: Droplet },
-  { id: "general", label: "Umum", icon: Package },
+  { id: "all", label: "Semua Produk" },
+  { id: "gas", label: "Gas LPG" },
+  { id: "water", label: "Air Galon" },
+  { id: "general", label: "Lainnya" },
 ]
 
 type ReceiptData = {
@@ -103,7 +110,8 @@ type RawCustomer = {
 }
 
 export function POSInterface() {
-  const [activeCategory, setActiveCategory] = useState<Product["category"]>("gas")
+  const router = useRouter()
+  const [activeCategory, setActiveCategory] = useState<"all" | Product["category"]>("all")
   const [products, setProducts] = useState<Product[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
@@ -115,6 +123,8 @@ export function POSInterface() {
   const [isProcessingPayment, setProcessingPayment] = useState(false)
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
   const [isReceiptOpen, setReceiptOpen] = useState(false)
+  const [capitalBalance, setCapitalBalance] = useState(0)
+  const [now, setNow] = useState(() => new Date())
 
   const cartStore = useCartStore()
   const {
@@ -124,19 +134,24 @@ export function POSInterface() {
     customerId,
     customerName,
     customerDiscountPercent,
+    customerTypeId: cartCustomerTypeId,
+    productTierPricings,
     addItem,
     removeItem,
     updateQuantity,
     setCustomer,
+    setProductTierPricings,
     clearCart,
   } = cartStore
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [productsResult, customersResult] = await Promise.all([
+      const [productsResult, customersResult, pricingsResult, capitalResult] = await Promise.all([
         getProductsForCurrentPangkalan(),
         getCustomersForCurrentPangkalan(),
+        getProductTierPricings(),
+        getActivePangkalanCapitalBalance(),
       ])
 
       if (productsResult.success && Array.isArray(productsResult.data)) {
@@ -178,46 +193,73 @@ export function POSInterface() {
           }))
         )
       }
+
+      if (pricingsResult.success && pricingsResult.data) {
+        setProductTierPricings(pricingsResult.data as ProductTierPricingItem[])
+      }
+
+      if (capitalResult.success) {
+        setCapitalBalance(capitalResult.data.balance)
+      }
     } catch (error) {
       console.error("Error loading POS data", error)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [setProductTierPricings])
 
   useEffect(() => {
     void loadData()
   }, [loadData])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   const categoryCounts = useMemo(() => {
-    return products.reduce(
+    const counts = products.reduce(
       (acc, product) => {
         acc[product.category] += 1
         return acc
       },
       { gas: 0, water: 0, general: 0 } as Record<Product["category"], number>
     )
+    return {
+      all: products.length,
+      gas: counts.gas,
+      water: counts.water,
+      general: counts.general,
+    } as Record<string, number>
   }, [products])
 
   const productCards: DisplayProduct[] = useMemo(() => {
     const query = searchTerm.trim().toLowerCase()
     return products
-      .filter((product) => product.category === activeCategory)
+      .filter((product) => (activeCategory === "all" ? true : product.category === activeCategory))
       .filter((product) =>
         query.length === 0 ? true : product.name.toLowerCase().includes(query)
       )
-      .map((product) => ({
-        id: product.id,
-        name: product.name,
-        category: product.category,
-        basePrice: product.basePrice,
-        price: product.category === 'gas'
-          ? product.basePrice
-          : Math.round(product.basePrice * (1 - customerDiscountPercent / 100)),
-        stock: product.stock,
-        imageUrl: product.imageUrl,
-      }))
-  }, [products, activeCategory, searchTerm, customerDiscountPercent])
+      .map((product) => {
+        const resolved = resolveDiscountClient(
+          product.id,
+          cartCustomerTypeId,
+          product.basePrice,
+          product.category,
+          productTierPricings,
+          customerDiscountPercent
+        );
+        return {
+          id: product.id,
+          name: product.name,
+          category: product.category,
+          basePrice: product.basePrice,
+          price: resolved.finalPrice,
+          stock: product.stock,
+          imageUrl: product.imageUrl,
+        };
+      })
+  }, [products, activeCategory, searchTerm, customerDiscountPercent, cartCustomerTypeId, productTierPricings])
 
   const totalSavings = useMemo(
     () =>
@@ -231,6 +273,7 @@ export function POSInterface() {
   const cashReceivedAmount = Number.parseInt(cashReceivedInput || "0", 10) || 0
   const changeAmount = Math.max(0, cashReceivedAmount - total)
   const isCashShort = selectedPaymentMethod === "cash" && cashReceivedAmount < total
+  const serviceTax = 0
 
   const quickCashOptions = useMemo(() => {
     const presets = [20000, 50000, 100000, 200000, 500000]
@@ -260,16 +303,7 @@ export function POSInterface() {
     if (!success) {
       const cartItem = items.find((item) => item.productId === productId)
       const currentCartQuantity = cartItem ? cartItem.quantity : 0
-      alert(`❌ Stok tidak mencukupi! Stok tersedia: ${product.stock}, diminta: ${currentCartQuantity + 1}`)
-    }
-  }
-
-  const handleAdjustQuantity = (productId: string) => {
-    const cartItem = items.find((item) => item.productId === productId)
-    if (cartItem) {
-      updateQuantity(productId, cartItem.quantity + 1)
-    } else {
-      handleAddToCart(productId)
+      toast.error(`Stok tidak cukup. Stok tersedia ${product.stock}, diminta ${currentCartQuantity + 1}.`)
     }
   }
 
@@ -286,6 +320,16 @@ export function POSInterface() {
       )
     }
     setCustomerDialogOpen(false)
+  }
+
+  const handleIncreaseQuantity = (productId: string, currentQuantity: number) => {
+    const product = products.find((item) => item.id === productId)
+    const nextQuantity = currentQuantity + 1
+    const success = updateQuantity(productId, nextQuantity, product?.stock)
+
+    if (!success && product) {
+      toast.error(`Stok tidak cukup. Stok tersedia ${product.stock}, diminta ${nextQuantity}.`)
+    }
   }
 
   const handleProcessPayment = async () => {
@@ -305,9 +349,9 @@ export function POSInterface() {
     const invalidItems = stockValidation.filter((item) => !item.isValid)
     if (invalidItems.length > 0) {
       const errorMessage = invalidItems
-        .map((item) => `${item.productName}: ${item.requested} diminta, ${item.available} tersedia`)
-        .join("\n")
-      alert(`❌ Stok tidak mencukupi untuk beberapa item:\n${errorMessage}\n\nSilakan perbarui keranjang Anda.`)
+        .map((item) => `${item.productName} (${item.requested}/${item.available})`)
+        .join(", ")
+      toast.error(`Stok tidak cukup untuk: ${errorMessage}.`)
       return
     }
 
@@ -364,11 +408,11 @@ export function POSInterface() {
         // Refresh data to update stock and sales summary
         await loadData()
       } else {
-        alert(`❌ Gagal memproses pembayaran: ${result.error}`)
+        toast.error(result.error || "Gagal memproses pembayaran.")
       }
     } catch (error) {
       console.error("Payment processing error", error)
-      alert("❌ Terjadi kesalahan saat memproses pembayaran")
+      toast.error("Terjadi kesalahan saat memproses pembayaran.")
     } finally {
       setProcessingPayment(false)
     }
@@ -397,245 +441,263 @@ export function POSInterface() {
     customerId,
   ])
 
+  const todayLabel = useMemo(
+    () =>
+      now.toLocaleDateString("id-ID", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }),
+    [now]
+  )
+
+  const timeLabel = useMemo(
+    () =>
+      now.toLocaleTimeString("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    [now]
+  )
+
   if (loading) {
-    return (
-      <div className="flex min-h-screen text items-center justify-center bg-surface-secondary">
-        <div className="text-center">
-          <Loader2 className="mx-auto mb-4 h-14 w-14 animate-spin text-primary" aria-hidden />
-          <h2 className="text-2xl font-semibold text-primary">Memuat POS</h2>
-          <p className="text-secondary">Mohon tunggu sesaat…</p>
-        </div>
-      </div>
-    )
+    return <PageLoadingState title="Memuat POS" fullScreen />
   }
 
   return (
     <>
-      <div className="min-h-screen bg-[#F5F7FB] px-4 py-6 text-primary sm:px-6 lg:px-10">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6">
-          <div className="rounded-[32px] border border-white/60 bg-gradient-to-br from-white via-white to-[#F2F4FF] p-6 shadow-[0_40px_120px_-80px_rgba(15,23,42,0.8)] sm:p-8">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-              <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted">Kasir</p>
-                <h1 className="text-3xl font-semibold leading-tight text-primary lg:text-4xl">Ollapos</h1>
-
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge className="rounded-full border border-primary/10 bg-primary/5 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-primary">
-                  Mode Kasir Aktif
-                </Badge>
-                <Button variant="outline" className="rounded-full border-medium/50 bg-white px-5" onClick={() => { void loadData() }}>
-                  Sinkron data
-                </Button>
-              </div>
-            </div>
-            <div className="mt-8">
-              <SalesSummary inline />
-            </div>
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
-                <Input
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Cari produk atau ketikkan kata kunci"
-                  className="h-12 rounded-2xl border-medium/40 bg-white pl-11 text-base"
-                />
-              </div>
-              <Button
-                className="h-12 rounded-2xl px-6 text-base font-semibold shadow-sm"
-                variant="secondary"
-                onClick={() => setPaymentDialogOpen(true)}
-                disabled={!items.length}
-              >
-                Lihat Pembayaran
-              </Button>
-            </div>
-
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
-            <section className="flex w-full flex-1 flex-col gap-6">
-              <Card className="flex flex-1 flex-col rounded-[32px] border border-medium/40 bg-white shadow-[0_40px_120px_-90px_rgba(15,23,42,0.85)]">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-xl font-semibold text-primary">Katalog Produk</CardTitle>
-                  <p className="text-sm text-secondary">
-                    Ketuk kartu produk untuk menambah ke keranjang, atau pilih kategori di bawah ini.
-                  </p>
-                </CardHeader>
-                <CardContent className="flex flex-1 flex-col gap-6 overflow-hidden">
-                  <CategoryTabs
-                    categories={CATEGORY_OPTIONS}
-                    activeCategory={activeCategory}
-                    onCategoryChange={(category) => setActiveCategory(category)}
-                    counts={categoryCounts}
+      <div className="h-full w-full overflow-hidden bg-[#f6f6f8]">
+        <div className="flex h-full w-full overflow-hidden">
+          <main className="flex min-w-0 flex-1 flex-col bg-[#fdfdfd]">
+            <header className="flex h-16 items-center justify-between border-b border-[#e5e7eb] bg-white px-6">
+              <div className="flex w-full max-w-xl items-center gap-4">
+                <div className="relative w-full">
+                  <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#6b7280]" />
+                  <Input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Cari produk (Cmd+K)"
+                    className="h-10 rounded-full border border-[#e5e7eb] bg-[#f9fafb] pl-10 pr-4 text-sm text-[#111827] shadow-sm transition-all focus-visible:border-[#396fe4] focus-visible:bg-white focus-visible:ring-1 focus-visible:ring-[#396fe4]"
                   />
-                  <Separator className="bg-medium/30" />
-                  {productCards.length === 0 ? (
-                    <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-medium/40 bg-surface-tertiary/80 p-8 text-center text-secondary">
-                      <Package className="mb-4 h-12 w-12 text-muted" aria-hidden />
-                      <p className="text-base font-semibold text-primary">Tidak ada produk pada kategori ini</p>
-                      <p className="text-sm">Coba pilih kategori lain atau hapus pencarian</p>
-                    </div>
-                  ) : (
-                    <ScrollArea className="h-[60vh] pr-4">
-                      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-2">
-                        {productCards.map((product) => (
-                          <ProductCard
-                            key={product.id}
-                            product={product}
-                            quantityInCart={items.find((item) => item.productId === product.id)?.quantity || 0}
-                            onAddToCart={handleAddToCart}
-                            onAdjustQuantity={handleAdjustQuantity}
-                          />
-                        ))}
+                </div>
+
+              </div>
+              <div className="flex items-center gap-5">
+                <div className="hidden items-center gap-3 lg:flex">
+                  <div className="text-right">
+                    <p className="text-sm font-semibold leading-none text-[#111827]">Kasir Utama</p>
+                    <p className="mt-1 text-[13px] text-[#6b7280]">Modal {formatCurrency(capitalBalance)}</p>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#e5e7eb] bg-[#f9fafb] text-[#6b7280]">
+                    <User className="size-5" />
+                  </div>
+                </div>
+
+                <div className="hidden h-8 w-px bg-[#e5e7eb] lg:block" />
+
+                <div className="flex items-center gap-2.5 rounded-xl border border-[#e5e7eb] bg-[#f9fafb] px-3 py-1.5 shadow-sm">
+                  <Clock3 className="size-4 text-[#6b7280]" />
+                  <div className="flex flex-col">
+                    <p className="mb-0.5 text-[10px] font-bold leading-none tracking-wider text-[#6b7280]">{todayLabel}</p>
+                    <p className="text-sm font-semibold leading-none tabular-nums text-[#111827]">{timeLabel}</p>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <div className="px-6 py-4">
+              <CategoryTabs
+                categories={CATEGORY_OPTIONS}
+                activeCategory={activeCategory}
+                onCategoryChange={(category) => setActiveCategory(category as "all" | Product["category"])}
+                counts={categoryCounts}
+              />
+            </div>
+
+            <section className="flex-1 overflow-y-auto px-6 pb-6 [scrollbar-width:thin]">
+              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
+                <button
+                  type="button"
+                  className="group flex h-full cursor-pointer flex-col gap-3 rounded-xl border border-[#e5e7eb] bg-white p-3 transition-all hover:border-[#396fe4]"
+                  onClick={() => router.push("/dashboard/products")}
+                >
+                  <div className="relative aspect-square overflow-hidden rounded-lg bg-[#f6f6f8]">
+                    <div className="flex h-full w-full items-center justify-center">
+                      <div className="rounded-full border border-[#e5e7eb] p-2 text-[#6b7280]">
+                        <Plus className="size-5" />
                       </div>
-                    </ScrollArea>
-                  )}
-                </CardContent>
-              </Card>
-            </section>
-
-            <aside className="flex w-full flex-col gap-6">
-
-              <Card className="flex flex-1 flex-col rounded-[32px] border border-medium/40 bg-white shadow-[0_40px_120px_-90px_rgba(15,23,42,0.85)]">
-                <CardHeader className="flex items-start justify-between gap-3 pb-4">
+                    </div>
+                  </div>
                   <div>
-                    <CardTitle className="text-xl font-semibold text-primary">Keranjang</CardTitle>
-                    <p className="text-sm text-secondary">{itemCount} item dipilih</p>
+                    <h3 className="text-sm font-semibold text-[#374151]">Tambah Produk</h3>
+                    <p className="mt-1 text-sm font-bold text-[#396fe4]">Buka katalog produk</p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={clearCart}
-                    disabled={!items.length}
-                    className="rounded-full border-medium/50"
+                </button>
+
+                {productCards.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    quantityInCart={items.find((item) => item.productId === product.id)?.quantity || 0}
+                    onAddToCart={handleAddToCart}
+                  />
+                ))}
+              </div>
+            </section>
+          </main>
+
+          <aside className="w-[350px] shrink-0 border-l border-[#e5e7eb] bg-white lg:w-[400px]">
+            <div className="flex h-full flex-col">
+              <div className="border-b border-[#e5e7eb] p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-[#374151]">Pesanan Baru</h2>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-sm font-bold text-[#396fe4]"
+                    onClick={() => setCustomerDialogOpen(true)}
                   >
-                    Kosongkan
-                  </Button>
-                </CardHeader>
-
-                <CardContent className="flex flex-1 flex-col gap-4 overflow-hidden">
-                  <div className="rounded-2xl border border-medium/40 bg-surface p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Pelanggan aktif</p>
-                        <p className="text-lg font-semibold text-primary">{customerName ?? "Tamu Umum"}</p>
-                        {customerDiscountPercent > 0 && (
-                          <p className="text-sm text-success">Diskon otomatis {customerDiscountPercent}%</p>
-                        )}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full"
-                        onClick={() => setCustomerDialogOpen(true)}
-                      >
-                        {customerName ? "Ganti" : "Pilih"}
-                      </Button>
-                    </div>
+                    <Plus className="size-4" />
+                    Pelanggan
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-lg border border-[#e5e7eb] bg-[#f6f6f8] p-3 text-left"
+                  onClick={() => setCustomerDialogOpen(true)}
+                >
+                  <Users className="size-5 text-[#6b7280]" />
+                  <div className="flex-1">
+                    <p className="text-xs text-[#6b7280]">Pelanggan</p>
+                    <p className="text-sm font-semibold text-[#374151]">{customerName ?? "Walk-in Customer"}</p>
                   </div>
+                  <ChevronDown className="size-4 text-[#6b7280]" />
+                </button>
+                {customerDiscountPercent > 0 && (
+                  <p className="mt-2 text-xs text-[#16a34a]">Diskon pelanggan {customerDiscountPercent}%</p>
+                )}
+              </div>
 
-                  {items.length === 0 ? (
-                    <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border border-dashed border-medium/40 bg-surface-tertiary/80 p-6 text-center text-secondary">
-                      <ShoppingCart className="mb-3 h-12 w-12 text-muted" aria-hidden />
-                      <p className="text-base font-medium text-primary">Keranjang masih kosong</p>
-                      <p className="text-sm">Pilih produk di panel kiri untuk memulai transaksi</p>
-                    </div>
-                  ) : (
-                    <ScrollArea className="flex-1 pr-3">
-                      <div className="space-y-3 pb-2">
-                        {items.map((item) => (
-                          <CartItemRow
-                            key={item.id}
-                            item={item}
-                            onDecrease={(productId) => updateQuantity(productId, item.quantity - 1)}
-                            onIncrease={(productId) => updateQuantity(productId, item.quantity + 1)}
-                            onRemove={removeItem}
-                          />
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  )}
-
-                  <div className="space-y-2 rounded-2xl border border-medium/40 bg-surface-tertiary/80 p-4 text-sm">
-                    <div className="flex items-center justify-between text-secondary">
-                      <span>Subtotal</span>
-                      <span className="font-medium text-primary">{formatCurrency(total)}</span>
-                    </div>
-                    {totalSavings > 0 && (
-                      <div className="flex items-center justify-between text-success">
-                        <span>Hemat pelanggan</span>
-                        <span>-{formatCurrency(totalSavings)}</span>
-                      </div>
-                    )}
-                    <Separator className="my-2" />
-                    <div className="flex items-center justify-between text-lg font-semibold text-primary">
-                      <span>Total Pembayaran</span>
-                      <span>{formatCurrency(total)}</span>
-                    </div>
+              <div className="flex-1 overflow-y-auto px-6 py-4 [scrollbar-width:thin]">
+                {items.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-[#e5e7eb] bg-[#f6f6f8] px-6 text-center text-[#6b7280]">
+                    <ShoppingCart className="mb-3 size-10" />
+                    <p className="font-semibold text-[#374151]">Keranjang masih kosong</p>
+                    <p className="text-sm">Pilih produk untuk mulai transaksi</p>
                   </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {items.map((item) => (
+                      <CartItemRow
+                        key={item.id}
+                        item={item}
+                        onDecrease={(productId) => updateQuantity(productId, item.quantity - 1)}
+                        onIncrease={(productId) => handleIncreaseQuantity(productId, item.quantity)}
+                        onRemove={removeItem}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
 
-                  <Button
-                    className="mt-2 h-14 w-full rounded-2xl text-lg font-semibold shadow-sm"
-                    onClick={() => setPaymentDialogOpen(true)}
-                    disabled={!items.length}
+              <div className="border-t border-[#e5e7eb] bg-[#f6f6f8]/60 p-6">
+                <div className="mb-6 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#6b7280]">Subtotal ({itemCount})</span>
+                    <span className="font-medium text-[#374151]">{formatCurrency(total)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#6b7280]">PPN (11%)</span>
+                    <span className="font-medium text-[#374151]">{formatCurrency(serviceTax)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#6b7280]">Diskon</span>
+                    <span className="font-medium text-red-500">-{formatCurrency(totalSavings)}</span>
+                  </div>
+                  <div className="flex items-end justify-between border-t border-dashed border-[#e5e7eb] pt-3">
+                    <span className="text-base font-bold text-[#374151]">Total</span>
+                    <span className="text-2xl font-black text-[#396fe4]">{formatCurrency(total + serviceTax)}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    className="h-12 rounded-xl border border-[#e5e7eb] bg-white px-4 text-sm font-bold text-[#6b7280] transition-colors hover:bg-[#f3f4f6]"
                   >
-                    Proses Pembayaran
-                  </Button>
-                </CardContent>
-              </Card>
-            </aside>
-          </div>
+                    Simpan Bil
+                  </button>
+                  <button
+                    type="button"
+                    className="h-12 rounded-xl border border-[#e5e7eb] bg-white px-4 text-sm font-bold text-[#6b7280] transition-colors hover:bg-[#f3f4f6]"
+                  >
+                    Cetak Draft
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#396fe4] text-lg font-bold text-white shadow-lg shadow-[#396fe4]/30 transition-colors hover:bg-[#396fe4]/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => setPaymentDialogOpen(true)}
+                  disabled={!items.length}
+                >
+                  <DollarSign className="size-5" />
+                  Bayar Sekarang
+                </button>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
 
       <Dialog open={isCustomerDialogOpen} onOpenChange={setCustomerDialogOpen}>
-        <DialogContent className="max-w-md space-y-4">
-          <DialogHeader>
-            <DialogTitle>Pilih Pelanggan</DialogTitle>
-            <p className="text-sm text-secondary">
+        <DialogContent className="max-w-md">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-3xl font-semibold text-primary">Pilih Pelanggan</DialogTitle>
+            <p className="text-sm text-secondary leading-relaxed">
               Diskon pelanggan secara otomatis diterapkan saat transaksi
             </p>
           </DialogHeader>
-          <ScrollArea className="max-h-80 pr-2">
-            <div className="space-y-2">
-              <Button
-                variant="outline"
-                className="w-full justify-between"
-                onClick={() => handleSelectCustomer()}
-              >
-                <span>Tamu Umum</span>
-                <Badge variant="outline">0% diskon</Badge>
-              </Button>
-              {customers.map((customer) => (
+          <div className="space-y-8">
+            <ScrollArea className="max-h-80 pr-2">
+              <div className="space-y-2">
                 <Button
-                  key={customer.id}
                   variant="outline"
                   className="w-full justify-between"
-                  onClick={() => handleSelectCustomer(customer)}
+                  onClick={() => handleSelectCustomer()}
                 >
-                  <div className="flex flex-col items-start text-left">
-                    <span className="text-base font-semibold text-primary">{customer.name}</span>
-                    {customer.discountPercent > 0 && (
-                      <span className="text-sm text-success">Diskon {customer.discountPercent}%</span>
-                    )}
-                  </div>
-                  <span
-                    className="rounded-full px-3 py-1 text-xs font-semibold text-white"
-                    style={{ backgroundColor: customer.color }}
-                  >
-                    {customer.displayName}
-                  </span>
+                  <span>Tamu Umum</span>
+                  <Badge variant="outline">0% diskon</Badge>
                 </Button>
-              ))}
-            </div>
-          </ScrollArea>
-          <DialogFooter>
-            <Button variant="ghost" className="w-full" onClick={() => setCustomerDialogOpen(false)}>
+                {customers.map((customer) => (
+                  <Button
+                    key={customer.id}
+                    variant="outline"
+                    className="w-full justify-between"
+                    onClick={() => handleSelectCustomer(customer)}
+                  >
+                    <div className="flex flex-col items-start text-left">
+                      <span className="text-base font-semibold text-primary">{customer.name}</span>
+                      {customer.discountPercent > 0 && (
+                        <span className="text-sm text-success">Diskon {customer.discountPercent}%</span>
+                      )}
+                    </div>
+                    <span
+                      className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                      style={{ backgroundColor: customer.color }}
+                    >
+                      {customer.displayName}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+          <Separator className="hidden md:block" />
+          <div className="flex flex-col-reverse gap-3 pt-3 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="h-12 rounded-lg px-6 text-base w-full sm:w-auto" onClick={() => setCustomerDialogOpen(false)}>
               Tutup
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -649,116 +711,118 @@ export function POSInterface() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl space-y-6">
-          <DialogHeader>
-            <DialogTitle>Proses Pembayaran</DialogTitle>
-            <p className="text-sm text-secondary">Periksa jumlah dan metode sebelum menyelesaikan transaksi</p>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-3xl font-semibold text-primary">Proses Pembayaran</DialogTitle>
+            <p className="text-sm text-secondary leading-relaxed">Periksa jumlah dan metode sebelum menyelesaikan transaksi</p>
           </DialogHeader>
 
-          <div className="rounded-lg border border-primary/30 bg-primary/5 p-6 text-center">
-            <p className="text-sm text-secondary">Total Tagihan</p>
-            <p className="mt-2 text-4xl font-semibold text-primary">{formatCurrency(total)}</p>
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-sm font-semibold uppercase tracking-wide text-secondary">Metode Pembayaran</p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Button
-                variant={selectedPaymentMethod === "cash" ? "default" : "outline"}
-                className="h-auto flex-col gap-2 py-4"
-                onClick={() => setSelectedPaymentMethod("cash")}
-              >
-                <DollarSign className="h-6 w-6" aria-hidden />
-                Tunai
-              </Button>
-              <Button
-                variant={selectedPaymentMethod === "qris" ? "default" : "outline"}
-                className="h-auto flex-col gap-2 py-4"
-                onClick={() => setSelectedPaymentMethod("qris")}
-              >
-                <QrCode className="h-6 w-6" aria-hidden />
-                QRIS
-              </Button>
-              <Button
-                variant={selectedPaymentMethod === "kasbon" ? "default" : "outline"}
-                className="h-auto flex-col gap-2 py-4"
-                onClick={() => setSelectedPaymentMethod("kasbon")}
-              >
-                <FileText className="h-6 w-6" aria-hidden />
-                Kasbon
-              </Button>
+          <div className="space-y-8">
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-6 text-center">
+              <p className="text-sm text-secondary">Total Tagihan</p>
+              <p className="mt-2 text-4xl font-semibold text-primary">{formatCurrency(total)}</p>
             </div>
-          </div>
 
-          {selectedPaymentMethod === "cash" && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {quickCashOptions.map((amount) => (
-                  <Button
-                    key={amount}
-                    variant="outline"
-                    onClick={() => setCashReceivedInput(String(amount))}
-                  >
-                    {amount === total ? "Pas" : formatCurrency(amount)}
-                  </Button>
-                ))}
+            <div className="space-y-3">
+              <p className="text-sm font-semibold uppercase tracking-wide text-secondary">Metode Pembayaran</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Button
+                  variant={selectedPaymentMethod === "cash" ? "default" : "outline"}
+                  className="h-auto flex-col gap-2 py-4"
+                  onClick={() => setSelectedPaymentMethod("cash")}
+                >
+                  <DollarSign className="h-6 w-6" aria-hidden />
+                  Tunai
+                </Button>
+                <Button
+                  variant={selectedPaymentMethod === "qris" ? "default" : "outline"}
+                  className="h-auto flex-col gap-2 py-4"
+                  onClick={() => setSelectedPaymentMethod("qris")}
+                >
+                  <QrCode className="h-6 w-6" aria-hidden />
+                  QRIS
+                </Button>
+                <Button
+                  variant={selectedPaymentMethod === "kasbon" ? "default" : "outline"}
+                  className="h-auto flex-col gap-2 py-4"
+                  onClick={() => setSelectedPaymentMethod("kasbon")}
+                >
+                  <FileText className="h-6 w-6" aria-hidden />
+                  Kasbon
+                </Button>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-secondary" htmlFor="cash-input">
-                  Uang diterima
-                </label>
-                <Input
-                  id="cash-input"
-                  type="number"
-                  inputMode="numeric"
-                  value={cashReceivedInput}
-                  onChange={(event) => setCashReceivedInput(event.target.value)}
-                  placeholder="Masukkan nominal"
-                />
-              </div>
-              {cashReceivedAmount > 0 && (
-                <div
-                  className={`rounded-lg border px-4 py-3 text-center ${isCashShort
+            </div>
+
+            {selectedPaymentMethod === "cash" && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {quickCashOptions.map((amount) => (
+                    <Button
+                      key={amount}
+                      variant="outline"
+                      onClick={() => setCashReceivedInput(String(amount))}
+                    >
+                      {amount === total ? "Pas" : formatCurrency(amount)}
+                    </Button>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-secondary" htmlFor="cash-input">
+                    Uang diterima
+                  </label>
+                  <NumericInput
+                    id="cash-input"
+                    value={cashReceivedInput}
+                    onValueChange={setCashReceivedInput}
+                    placeholder="Masukkan nominal"
+                  />
+                </div>
+                {cashReceivedAmount > 0 && (
+                  <div
+                    className={`rounded-lg border px-4 py-3 text-center ${isCashShort
                       ? "border-warning bg-warning-subtle text-warning"
                       : "border-success bg-success-subtle text-success"
-                    }`}
-                >
-                  <p className="text-sm font-medium">
-                    {isCashShort
-                      ? `Kurang ${formatCurrency(total - cashReceivedAmount)}`
-                      : `Kembalian ${formatCurrency(changeAmount)}`}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+                      }`}
+                  >
+                    <p className="text-sm font-medium">
+                      {isCashShort
+                        ? `Kurang ${formatCurrency(total - cashReceivedAmount)}`
+                        : `Kembalian ${formatCurrency(changeAmount)}`}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
-          {selectedPaymentMethod === "qris" && (
-            <div className="rounded-lg border border-info/30 bg-info-subtle p-6 text-center text-info">
-              <QrCode className="mx-auto mb-3 h-20 w-20" aria-hidden />
-              <p className="font-semibold">Minta pelanggan memindai QRIS kasir</p>
-              <p className="text-sm">Setelah pembayaran diterima, klik proses pembayaran</p>
-            </div>
-          )}
+            {selectedPaymentMethod === "qris" && (
+              <div className="rounded-lg border border-info/30 bg-info-subtle p-6 text-center text-info">
+                <QrCode className="mx-auto mb-3 h-20 w-20" aria-hidden />
+                <p className="font-semibold">Minta pelanggan memindai QRIS kasir</p>
+                <p className="text-sm">Setelah pembayaran diterima, klik proses pembayaran</p>
+              </div>
+            )}
 
-          {selectedPaymentMethod === "kasbon" && (
-            <div className="rounded-lg border border-warning/40 bg-warning-subtle p-4 text-sm text-warning">
-              <Users className="mb-2 h-5 w-5" aria-hidden />
-              Pilih pelanggan terlebih dahulu sebelum menyimpan transaksi kasbon.
-            </div>
-          )}
+            {selectedPaymentMethod === "kasbon" && (
+              <div className="rounded-lg border border-warning/40 bg-warning-subtle p-4 text-sm text-warning">
+                <Users className="mb-2 h-5 w-5" aria-hidden />
+                Pilih pelanggan terlebih dahulu sebelum menyimpan transaksi kasbon.
+              </div>
+            )}
 
-          <DialogFooter className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          </div>
+          <Separator className="hidden md:block" />
+          <div className="flex flex-col-reverse gap-3 pt-3 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
-              className="sm:min-w-[160px]"
+              className="h-12 rounded-lg px-6 text-base"
               onClick={() => setPaymentDialogOpen(false)}
               disabled={isProcessingPayment}
             >
               Batal
             </Button>
             <Button
-              className="sm:min-w-[200px] bg-primary text-primary-foreground hover:bg-primary/90"
+              variant="brand"
+              className="h-12 rounded-lg px-6 text-base"
               onClick={handleProcessPayment}
               disabled={!canSubmitPayment}
             >
@@ -771,7 +835,7 @@ export function POSInterface() {
                 "Proses Pembayaran"
               )}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

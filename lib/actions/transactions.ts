@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from '@/db';
-import { transaction, transactionItem, inventory, customer, customerType, inventoryLog } from '@/db/schema/pos';
+import { transaction, transactionItem, inventory, customer, customerType, inventoryLog, product } from '@/db/schema/pos';
 import { eq, and, inArray, gte, lt } from 'drizzle-orm';
 import { resolvePangkalanContext } from '@/lib/server/pangkalan-context';
 
@@ -89,12 +89,12 @@ export async function createTransaction(data: {
         id: transactionId,
         pangkalanId: pangkalan.id,
         customerId: data.customerId || null,
-        totalAmount: total,
-        totalCost: 0,
-        totalProfit: 0,
+        totalAmount: total.toFixed(2),
+        totalCost: "0",
+        totalProfit: "0",
         paymentMethod: data.paymentMethod,
-        cashReceived: data.cashReceived || null,
-        changeAmount: data.cashReceived ? data.cashReceived - total : null,
+        cashReceived: data.cashReceived ? data.cashReceived.toFixed(2) : null,
+        changeAmount: data.cashReceived ? (data.cashReceived - total).toFixed(2) : null,
         status: 'paid',
         createdAt: new Date()
       }).returning();
@@ -119,13 +119,13 @@ export async function createTransaction(data: {
           transactionId,
           productId: item.productId,
           qty: item.quantity || 1,
-          priceAtPurchase: item.price || 0,
-          costAtPurchase: unitCost,
-          subtotal: item.subtotal || 0,
-          profit: lineProfit,
+          priceAtPurchase: (item.price || 0).toFixed(2),
+          costAtPurchase: unitCost.toFixed(2),
+          subtotal: (item.subtotal || 0).toFixed(2),
+          profit: lineProfit.toFixed(2),
         });
 
-        // Update inventory (decrease stock filled, increase stock empty)
+        // Update inventory (decrease stock filled, increase stock empty for returnable products)
         const inventoryRecord = await tx
           .select()
           .from(inventory)
@@ -136,10 +136,21 @@ export async function createTransaction(data: {
           .limit(1);
 
         if (inventoryRecord.length > 0) {
+          // Check if product is returnable (gas/water have empty containers)
+          const productRecord = await tx
+            .select({ category: product.category })
+            .from(product)
+            .where(eq(product.id, item.productId))
+            .limit(1);
+          const isReturnable = productRecord.length > 0 &&
+            (productRecord[0].category === 'gas' || productRecord[0].category === 'water');
+
           const currentStock = inventoryRecord[0].stockFilled || 0;
           const currentEmptyStock = inventoryRecord[0].stockEmpty || 0;
           const newStock = Math.max(0, currentStock - item.quantity);
-          const newEmptyStock = currentEmptyStock + item.quantity; // Tabung kosong bertambah
+          const newEmptyStock = isReturnable
+            ? currentEmptyStock + item.quantity
+            : currentEmptyStock;
 
           await tx
             .update(inventory)
@@ -158,8 +169,8 @@ export async function createTransaction(data: {
             id: `inv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             pangkalanId: pangkalan.id,
             productId: item.productId,
-            qtyChangeFilled: -item.quantity, // Decrease filled stock
-            qtyChangeEmpty: item.quantity,   // Increase empty stock
+            qtyChangeFilled: -item.quantity,
+            qtyChangeEmpty: isReturnable ? item.quantity : 0,
             type: 'sale',
             note: `Transaksi ${transactionId} - ${item.quantity} ${item.productId}`,
             transactionId,
@@ -169,9 +180,9 @@ export async function createTransaction(data: {
       }
 
       const totalsPayload = {
-        totalCost: toMoney(totalCost),
-        totalProfit: toMoney(totalProfit),
-        changeAmount: data.cashReceived ? toMoney(data.cashReceived - total) : null,
+        totalCost: toMoney(totalCost).toFixed(2),
+        totalProfit: toMoney(totalProfit).toFixed(2),
+        changeAmount: data.cashReceived ? toMoney(data.cashReceived - total).toFixed(2) : null,
       };
 
       await tx
@@ -208,10 +219,12 @@ export async function getTransactionsToday(range?: DateRangeInput) {
     const { pangkalan } = await getContext();
     const { start, endExclusive, end } = resolveDateRange(range);
 
-    // Get transaction IDs for today's transactions first
-    const todayTxIds = await db
+    const fullTransactions = await db
       .select()
       .from(transaction)
+      .leftJoin(customer, eq(transaction.customerId, customer.id))
+      .leftJoin(customerType, eq(customer.typeId, customerType.id))
+      .leftJoin(transactionItem, eq(transaction.id, transactionItem.transactionId))
       .where(and(
         eq(transaction.pangkalanId, pangkalan.id),
         eq(transaction.status, 'paid'),
@@ -219,32 +232,13 @@ export async function getTransactionsToday(range?: DateRangeInput) {
         lt(transaction.createdAt, endExclusive)
       ));
 
-    if (todayTxIds.length === 0) {
-      return {
-        success: true,
-        data: []
-      };
-    }
-
-    // Extract transaction IDs
-    const txIds = todayTxIds.map(tx => tx.id);
-
-    // Get full transaction data with customer and item details
-    const fullTransactions = await db
-      .select()
-      .from(transaction)
-      .leftJoin(customer, eq(transaction.customerId, customer.id))
-      .leftJoin(customerType, eq(customer.typeId, customerType.id))
-      .leftJoin(transactionItem, eq(transaction.id, transactionItem.transactionId))
-      .where(inArray(transaction.id, txIds));
-
     // Group by transaction and aggregate item counts
     const groupedTransactions = fullTransactions.reduce<Record<string, GroupedTransaction>>((acc, row) => {
       const rowId = row.transaction?.id || '';
       if (!acc[rowId]) {
         acc[rowId] = {
           id: rowId,
-          totalAmount: row.transaction?.totalAmount || 0,
+          totalAmount: Number(row.transaction?.totalAmount || 0),
           paymentMethod: row.transaction?.paymentMethod || 'cash',
           status: row.transaction?.status || 'paid',
           customerName: row.customer?.name || null,
@@ -258,8 +252,6 @@ export async function getTransactionsToday(range?: DateRangeInput) {
     }, {});
 
     const todayTransactions = Object.values(groupedTransactions);
-
-    console.log('Today transactions for UI:', todayTransactions.length);
 
     return {
       success: true,
@@ -298,11 +290,9 @@ export async function getSalesSummary(range?: DateRangeInput) {
         lt(transaction.createdAt, endExclusive)
       ));
 
-    console.log('Today transactions found:', todayTransactions.length);
-
     // Calculate actual totals from today's transactions
     const transactionCount = todayTransactions.length;
-    
+
     // Calculate total sales from all transactions
     const totalSales = todayTransactions.reduce((sum, tx) => {
       const amount = typeof tx.totalAmount === 'string' ? parseFloat(tx.totalAmount) : tx.totalAmount;
@@ -327,11 +317,9 @@ export async function getSalesSummary(range?: DateRangeInput) {
         .select()
         .from(transactionItem)
         .where(inArray(transactionItem.transactionId, txIds));
-      
+
       totalItems = itemsResult.reduce((sum, item) => sum + (item.qty || 0), 0);
     }
-
-    console.log('Calculated summary:', { totalSales, totalItems, transactionCount });
 
     return {
       success: true,

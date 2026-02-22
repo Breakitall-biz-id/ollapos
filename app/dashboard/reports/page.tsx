@@ -1,929 +1,1210 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
-	BarChart3,
-	CalendarDays,
-	Download,
-	Loader2,
-	RefreshCcw,
-	Search,
-	TicketPercent,
-	Wallet,
+  AlertTriangle,
+  CalendarDays,
+  Download,
+  Loader2,
+  RefreshCcw,
+  TrendingUp,
+  Wallet,
 } from "lucide-react"
 import { DateRange } from "react-day-picker"
 import { toast } from "sonner"
-import { Area, AreaChart, CartesianGrid, XAxis } from "recharts"
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select"
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table"
 import { Calendar } from "@/components/ui/calendar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { PageLoadingState } from "@/components/page-loading-state"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
-	ChartConfig,
-	ChartContainer,
-	ChartTooltip,
-	ChartTooltipContent,
-} from "@/components/ui/chart"
-import { formatCurrency } from "@/lib/utils"
-import { getSalesSummary, getTransactionsToday } from "@/lib/actions"
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { TableEmptyState } from "@/components/table-empty-state"
+import { TablePageHeader } from "@/components/table-page-header"
+import { TableSectionCard } from "@/components/table-section-card"
+import { getReportsAnalytics } from "@/lib/actions/reports"
+import { cn, formatCurrency } from "@/lib/utils"
 
 type PaymentMethod = "cash" | "qris" | "kasbon"
 type TrendMode = "daily" | "weekly" | "monthly"
+type CategoryFilter = "all" | "gas" | "water" | "general"
 
-type SalesSummaryResponse = Awaited<ReturnType<typeof getSalesSummary>>
-type SalesSummary = SalesSummaryResponse["data"]
-
-type TransactionsResponse = Awaited<ReturnType<typeof getTransactionsToday>>
-type TransactionEntry = TransactionsResponse["data"] extends Array<infer T> ? T : never
+type AnalyticsResponse = Awaited<ReturnType<typeof getReportsAnalytics>>
+type AnalyticsData = NonNullable<AnalyticsResponse["data"]>
+type ReportTransaction = AnalyticsData["transactions"][number]
+type ReportItemSale = AnalyticsData["itemSales"][number]
+type ReportExpense = AnalyticsData["expenses"][number]
+type ReportCapitalEntry = AnalyticsData["capitalEntries"][number]
 
 type RangeSummary = { from?: Date | string | null; to?: Date | string | null }
 
-type TrendPoint = {
-	label: string
-	rangeLabel: string
-	sales: number
-	sortValue: number
+type ProfitPoint = {
+  label: string
+  sortValue: number
+  grossProfit: number
+  netProfit: number
 }
 
-const VAT_RATE = 0.11
-const DEFAULT_COGS_RATIO = 0.72
-const DEFAULT_OPEX_RATIO = 0.08
-
-const trendChartConfig = {
-	sales: {
-		label: "Penjualan",
-		color: "hsl(257, 85%, 60%)",
-	},
-} satisfies ChartConfig
-
-const paymentMeta: Record<PaymentMethod, { label: string; badgeClass: string; accent: string }> = {
-	cash: {
-		label: "Tunai",
-		badgeClass: "bg-emerald-50 text-emerald-600 border border-emerald-100",
-		accent: "bg-emerald-500",
-	},
-	qris: {
-		label: "QRIS",
-		badgeClass: "bg-indigo-50 text-indigo-600 border border-indigo-100",
-		accent: "bg-indigo-500",
-	},
-	kasbon: {
-		label: "Kasbon",
-		badgeClass: "bg-amber-50 text-amber-700 border border-amber-100",
-		accent: "bg-amber-500",
-	},
+type CapitalPoint = {
+  label: string
+  sortValue: number
+  balance: number
+  capitalIn: number
+  capitalOut: number
 }
+
+type SalesPoint = {
+  label: string
+  sortValue: number
+  sales: number
+  qty: number
+  profit: number
+}
+
+type ExpensePoint = {
+  label: string
+  sortValue: number
+  amount: number
+}
+
+const DEFAULT_RESERVE_DAYS = 5
+const PAYMENT_LABEL: Record<PaymentMethod, string> = {
+  cash: "Tunai",
+  qris: "QRIS",
+  kasbon: "Kasbon",
+}
+
+const PAYMENT_BADGE_CLASS: Record<PaymentMethod, string> = {
+  cash: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+  qris: "bg-indigo-50 text-indigo-700 border border-indigo-100",
+  kasbon: "bg-amber-50 text-amber-700 border border-amber-100",
+}
+
+const CHART_COLORS = ["#266dbe", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#14b8a6"]
+const CHART_GRID_STROKE = "#d8e3ef"
+const CHART_TICK_STYLE = { fontSize: 11, fill: "#7b8aa3" } as const
+const CHART_TOOLTIP_STYLE = {
+  background: "#0f172a",
+  border: "1px solid rgba(148,163,184,0.25)",
+  borderRadius: 10,
+  color: "#e2e8f0",
+  fontSize: 12,
+  boxShadow: "0 8px 20px rgba(15,23,42,0.22)",
+} as const
+const CHART_TOOLTIP_ITEM_STYLE = { color: "#e2e8f0", fontSize: 12, fontWeight: 600 } as const
+const CHART_TOOLTIP_LABEL_STYLE = { color: "#cbd5e1", fontSize: 11, fontWeight: 600 } as const
+const CHART_TOOLTIP_WRAPPER_STYLE = { outline: "none", zIndex: 40 } as const
 
 const createDefaultRange = (): DateRange => {
-	const today = new Date()
-	const start = new Date(today)
-	start.setDate(start.getDate() - 6)
-	start.setHours(0, 0, 0, 0)
-	const end = new Date(today)
-	end.setHours(0, 0, 0, 0)
-	return { from: start, to: end }
-}
-
-const formatTimeLabel = (value: string | Date | null | undefined) => {
-	if (!value) return "—"
-	try {
-		const date = typeof value === "string" ? new Date(value) : value
-		return date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
-	} catch {
-		return "—"
-	}
-}
-
-const formatDateLabel = (value: string | Date | null | undefined) => {
-	if (!value) return "—"
-	try {
-		const date = typeof value === "string" ? new Date(value) : value
-		return date.toLocaleDateString("id-ID", {
-			day: "2-digit",
-			month: "short",
-			year: "numeric",
-		})
-	} catch {
-		return "—"
-	}
-}
-
-const formatRangeLabel = (range?: RangeSummary) => {
-	if (!range?.from) return "Hari ini"
-	const fromLabel = formatDateLabel(range.from)
-	const toLabel = formatDateLabel(range.to ?? range.from)
-	return fromLabel === toLabel ? fromLabel : `${fromLabel} - ${toLabel}`
+  const now = new Date()
+  const start = new Date(now)
+  start.setDate(now.getDate() - 29)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(now)
+  end.setHours(0, 0, 0, 0)
+  return { from: start, to: end }
 }
 
 const normalizeClientRange = (range?: DateRange) => {
-	if (!range?.from) return undefined
-	const from = new Date(range.from)
-	from.setHours(0, 0, 0, 0)
-	const toSource = range.to ?? range.from
-	const to = new Date(toSource)
-	to.setHours(0, 0, 0, 0)
-	return { from, to }
+  if (!range?.from) return undefined
+  const from = new Date(range.from)
+  from.setHours(0, 0, 0, 0)
+
+  const toSource = range.to ?? range.from
+  const to = new Date(toSource)
+  to.setHours(0, 0, 0, 0)
+
+  return { from, to }
+}
+
+const formatDateLabel = (value: Date | string | null | undefined) => {
+  if (!value) return "—"
+  const parsed = typeof value === "string" ? new Date(value) : value
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return parsed.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
+}
+
+const formatRangeLabel = (range?: RangeSummary) => {
+  if (!range?.from) return "Hari ini"
+  const fromLabel = formatDateLabel(range.from)
+  const toLabel = formatDateLabel(range.to ?? range.from)
+  return fromLabel === toLabel ? fromLabel : `${fromLabel} - ${toLabel}`
+}
+
+const formatAxisNumber = (value: number) => {
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(0)}K`
+  return `${Math.round(value)}`
+}
+
+const bucketStartOfWeek = (date: Date) => {
+  const copy = new Date(date)
+  const day = copy.getDay()
+  const diff = (day + 6) % 7
+  copy.setDate(copy.getDate() - diff)
+  copy.setHours(0, 0, 0, 0)
+  return copy
+}
+
+const bucketMeta = (raw: Date, mode: TrendMode) => {
+  const date = new Date(raw)
+  date.setHours(0, 0, 0, 0)
+
+  if (mode === "daily") {
+    return {
+      key: date.toISOString().slice(0, 10),
+      sortValue: date.getTime(),
+      label: date.toLocaleDateString("id-ID", { day: "2-digit", month: "short" }),
+    }
+  }
+
+  if (mode === "weekly") {
+    const start = bucketStartOfWeek(date)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 6)
+    return {
+      key: start.toISOString().slice(0, 10),
+      sortValue: start.getTime(),
+      label: `${start.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })} - ${end.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}`,
+    }
+  }
+
+  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1)
+  return {
+    key: `${monthStart.getFullYear()}-${monthStart.getMonth()}`,
+    sortValue: monthStart.getTime(),
+    label: monthStart.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }),
+  }
+}
+
+const buildProfitSeries = (
+  transactions: ReportTransaction[],
+  expenses: ReportExpense[],
+  mode: TrendMode,
+): ProfitPoint[] => {
+  const map = new Map<string, ProfitPoint & { expense: number }>()
+
+  for (const tx of transactions) {
+    const createdAt = new Date(tx.createdAt)
+    if (Number.isNaN(createdAt.getTime())) continue
+
+    const meta = bucketMeta(createdAt, mode)
+    const txProfit = tx.totalProfit > 0 ? tx.totalProfit : tx.totalAmount - tx.totalCost
+    const bucket = map.get(meta.key)
+
+    if (!bucket) {
+      map.set(meta.key, {
+        label: meta.label,
+        sortValue: meta.sortValue,
+        grossProfit: txProfit,
+        expense: 0,
+        netProfit: txProfit,
+      })
+      continue
+    }
+
+    bucket.grossProfit += txProfit
+    bucket.netProfit += txProfit
+  }
+
+  for (const exp of expenses) {
+    const date = new Date(exp.expenseDate)
+    if (Number.isNaN(date.getTime())) continue
+
+    const meta = bucketMeta(date, mode)
+    const bucket = map.get(meta.key)
+
+    if (!bucket) {
+      map.set(meta.key, {
+        label: meta.label,
+        sortValue: meta.sortValue,
+        grossProfit: 0,
+        expense: exp.amount,
+        netProfit: -exp.amount,
+      })
+      continue
+    }
+
+    bucket.expense += exp.amount
+    bucket.netProfit -= exp.amount
+  }
+
+  return Array.from(map.values())
+    .sort((a, b) => a.sortValue - b.sortValue)
+    .map(({ expense: _expense, ...rest }) => rest)
+}
+
+const buildCapitalSeries = (
+  entries: ReportCapitalEntry[],
+  openingBalance: number,
+  mode: TrendMode,
+): CapitalPoint[] => {
+  const grouped = new Map<string, { label: string; sortValue: number; capitalIn: number; capitalOut: number }>()
+
+  for (const entry of entries) {
+    const date = new Date(entry.createdAt)
+    if (Number.isNaN(date.getTime())) continue
+
+    const meta = bucketMeta(date, mode)
+    const current = grouped.get(meta.key)
+
+    if (!current) {
+      grouped.set(meta.key, {
+        label: meta.label,
+        sortValue: meta.sortValue,
+        capitalIn: entry.type === "in" ? entry.amount : 0,
+        capitalOut: entry.type === "out" ? entry.amount : 0,
+      })
+      continue
+    }
+
+    if (entry.type === "in") {
+      current.capitalIn += entry.amount
+    } else {
+      current.capitalOut += entry.amount
+    }
+  }
+
+  const sorted = Array.from(grouped.values()).sort((a, b) => a.sortValue - b.sortValue)
+  if (sorted.length === 0) {
+    return [{ label: "Saldo Awal", sortValue: 0, balance: openingBalance, capitalIn: 0, capitalOut: 0 }]
+  }
+
+  let running = openingBalance
+  return sorted.map((bucket) => {
+    running += bucket.capitalIn - bucket.capitalOut
+    return {
+      label: bucket.label,
+      sortValue: bucket.sortValue,
+      balance: running,
+      capitalIn: bucket.capitalIn,
+      capitalOut: bucket.capitalOut,
+    }
+  })
+}
+
+const buildMonthlySalesSeries = (
+  rows: ReportItemSale[],
+  categoryFilter: CategoryFilter,
+  productFilter: string,
+): SalesPoint[] => {
+  const map = new Map<string, SalesPoint>()
+
+  for (const row of rows) {
+    if (categoryFilter !== "all" && row.productCategory !== categoryFilter) continue
+    if (productFilter !== "all" && row.productId !== productFilter) continue
+
+    const date = new Date(row.createdAt)
+    if (Number.isNaN(date.getTime())) continue
+    const meta = bucketMeta(date, "monthly")
+
+    const existing = map.get(meta.key)
+    if (!existing) {
+      map.set(meta.key, {
+        label: meta.label,
+        sortValue: meta.sortValue,
+        sales: row.subtotal,
+        qty: row.qty,
+        profit: row.profit,
+      })
+      continue
+    }
+
+    existing.sales += row.subtotal
+    existing.qty += row.qty
+    existing.profit += row.profit
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.sortValue - b.sortValue)
+}
+
+const buildTopProductSeries = (
+  rows: ReportItemSale[],
+  categoryFilter: CategoryFilter,
+  productFilter: string,
+) => {
+  const map = new Map<string, { name: string; sales: number; qty: number; profit: number }>()
+
+  for (const row of rows) {
+    if (categoryFilter !== "all" && row.productCategory !== categoryFilter) continue
+    if (productFilter !== "all" && row.productId !== productFilter) continue
+
+    const current = map.get(row.productId)
+    if (!current) {
+      map.set(row.productId, {
+        name: row.productName,
+        sales: row.subtotal,
+        qty: row.qty,
+        profit: row.profit,
+      })
+      continue
+    }
+
+    current.sales += row.subtotal
+    current.qty += row.qty
+    current.profit += row.profit
+  }
+
+  return Array.from(map.values())
+    .sort((a, b) => b.sales - a.sales)
+    .slice(0, 8)
+    .map((row) => ({
+      ...row,
+      shortName: row.name.length > 18 ? `${row.name.slice(0, 18)}…` : row.name,
+    }))
+}
+
+const buildExpenseCategorySeries = (expenses: ReportExpense[]) => {
+  const grouped = new Map<string, { name: string; amount: number; color: string }>()
+
+  for (const expense of expenses) {
+    const current = grouped.get(expense.categoryId)
+    if (!current) {
+      grouped.set(expense.categoryId, {
+        name: expense.categoryName,
+        amount: expense.amount,
+        color: expense.categoryColor,
+      })
+      continue
+    }
+
+    current.amount += expense.amount
+  }
+
+  return Array.from(grouped.values()).sort((a, b) => b.amount - a.amount)
+}
+
+const buildExpenseTrendSeries = (expenses: ReportExpense[]) => {
+  const map = new Map<string, ExpensePoint>()
+
+  for (const expense of expenses) {
+    const date = new Date(expense.expenseDate)
+    if (Number.isNaN(date.getTime())) continue
+
+    const meta = bucketMeta(date, "monthly")
+    const current = map.get(meta.key)
+    if (!current) {
+      map.set(meta.key, {
+        label: meta.label,
+        sortValue: meta.sortValue,
+        amount: expense.amount,
+      })
+      continue
+    }
+
+    current.amount += expense.amount
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.sortValue - b.sortValue)
 }
 
 const csvEscape = (value: string | number) => {
-	const stringValue = typeof value === "number" ? value.toString() : value ?? ""
-	if (/[",\n]/.test(stringValue)) {
-		return `"${stringValue.replace(/"/g, '""')}"`
-	}
-	return stringValue
+  const text = typeof value === "number" ? String(value) : value
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`
+  return text
 }
 
-const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
-
-const startOfWeek = (date: Date) => {
-	const clone = new Date(date)
-	const day = clone.getDay()
-	const diff = (day + 6) % 7 // convert so Monday is start
-	clone.setDate(clone.getDate() - diff)
-	clone.setHours(0, 0, 0, 0)
-	return clone
+const downloadCsv = (filename: string, rows: Array<Array<string | number>>) => {
+  if (typeof window === "undefined") return
+  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n")
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.setAttribute("download", filename)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
 }
 
-const endOfWeek = (start: Date) => {
-	const clone = new Date(start)
-	clone.setDate(clone.getDate() + 6)
-	clone.setHours(0, 0, 0, 0)
-	return clone
+const asNumber = (value: unknown): number => {
+  if (Array.isArray(value)) {
+    return asNumber(value[0])
+  }
+  if (typeof value === "number") return value
+  if (typeof value === "string") {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : 0
+  }
+  return 0
 }
 
-const getBucketMeta = (date: Date, mode: TrendMode) => {
-	const normalized = new Date(date)
-	normalized.setHours(0, 0, 0, 0)
-
-	if (mode === "daily") {
-		return {
-			key: normalized.toISOString().slice(0, 10),
-			label: normalized.toLocaleDateString("id-ID", { day: "2-digit", month: "short" }),
-			rangeLabel: formatDateLabel(normalized),
-			sortValue: normalized.getTime(),
-		}
-	}
-
-	if (mode === "weekly") {
-		const start = startOfWeek(normalized)
-		const end = endOfWeek(start)
-		const shortLabel = `${start.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })} - ${end.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}`
-		return {
-			key: start.toISOString().slice(0, 10),
-			label: shortLabel,
-			rangeLabel: formatRangeLabel({ from: start, to: end }),
-			sortValue: start.getTime(),
-		}
-	}
-
-	const monthStart = new Date(normalized.getFullYear(), normalized.getMonth(), 1)
-	const monthEnd = new Date(normalized.getFullYear(), normalized.getMonth() + 1, 0)
-	return {
-		key: `${monthStart.getFullYear()}-${monthStart.getMonth()}`,
-		label: monthStart.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }),
-		rangeLabel: formatRangeLabel({ from: monthStart, to: monthEnd }),
-		sortValue: monthStart.getTime(),
-	}
-}
-
-const buildTrendSeries = (records: TransactionEntry[], mode: TrendMode): TrendPoint[] => {
-	const buckets = new Map<string, TrendPoint>()
-
-	for (const tx of records) {
-		const rawDate = tx.createdAt ? new Date(tx.createdAt) : undefined
-		if (!rawDate || Number.isNaN(rawDate.getTime())) continue
-		const amount = Number(tx.totalAmount ?? 0)
-		if (!Number.isFinite(amount) || amount <= 0) continue
-		const meta = getBucketMeta(rawDate, mode)
-		const bucket = buckets.get(meta.key)
-		if (bucket) {
-			bucket.sales += amount
-		} else {
-			buckets.set(meta.key, {
-				label: meta.label,
-				rangeLabel: meta.rangeLabel,
-				sales: amount,
-				sortValue: meta.sortValue,
-			})
-		}
-	}
-
-	return Array.from(buckets.values()).sort((a, b) => a.sortValue - b.sortValue)
+function MetricCard({
+  title,
+  value,
+  hint,
+  icon,
+  tone = "default",
+}: {
+  title: string
+  value: string
+  hint: string
+  icon: ReactNode
+  tone?: "default" | "positive" | "negative"
+}) {
+  return (
+    <div className="report-kpi-card">
+      <div className="report-kpi-head">
+        <p className="report-kpi-title">{title}</p>
+        <span className="report-kpi-icon">{icon}</span>
+      </div>
+      <p
+        className={cn(
+          "report-kpi-value",
+          tone === "positive" && "report-kpi-value-positive",
+          tone === "negative" && "report-kpi-value-negative",
+        )}
+      >
+        {value}
+      </p>
+      <p className="report-kpi-hint">{hint}</p>
+    </div>
+  )
 }
 
 export default function ReportsPage() {
-	const [summary, setSummary] = useState<SalesSummary | null>(null)
-	const [transactions, setTransactions] = useState<TransactionEntry[]>([])
-	const [filteredTransactions, setFilteredTransactions] = useState<TransactionEntry[]>([])
-	const [loading, setLoading] = useState(true)
-	const [isRefreshing, setIsRefreshing] = useState(false)
-	const [searchTerm, setSearchTerm] = useState("")
-	const [paymentFilter, setPaymentFilter] = useState<PaymentMethod | "all">("all")
-	const [dateRange, setDateRange] = useState<DateRange>(() => createDefaultRange())
-	const [pendingRange, setPendingRange] = useState<DateRange | undefined>(() => createDefaultRange())
-	const [isCalendarOpen, setIsCalendarOpen] = useState(false)
-	const [trendMode, setTrendMode] = useState<TrendMode>("daily")
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
-	const rangeRef = useRef(dateRange)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [paymentFilter, setPaymentFilter] = useState<PaymentMethod | "all">("all")
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all")
+  const [productFilter, setProductFilter] = useState<string>("all")
+  const [trendMode, setTrendMode] = useState<TrendMode>("daily")
 
-	useEffect(() => {
-		rangeRef.current = dateRange
-	}, [dateRange])
+  const [dateRange, setDateRange] = useState<DateRange>(() => createDefaultRange())
+  const [pendingRange, setPendingRange] = useState<DateRange | undefined>(() => createDefaultRange())
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false)
+  const rangeRef = useRef(dateRange)
 
-	const loadReports = useCallback(async (range?: DateRange, initial = false) => {
-		const normalizedRange = normalizeClientRange(range ?? rangeRef.current)
+  useEffect(() => {
+    rangeRef.current = dateRange
+  }, [dateRange])
 
-		if (initial) {
-			setLoading(true)
-		} else {
-			setIsRefreshing(true)
-		}
+  const loadReports = useCallback(async (range?: DateRange, initial = false) => {
+    const normalized = normalizeClientRange(range ?? rangeRef.current)
 
-		try {
-			const payload = normalizedRange
-				? {
-					from: normalizedRange.from.toISOString(),
-					to: normalizedRange.to.toISOString(),
-				}
-				: undefined
+    if (initial) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
 
-			const [summaryResponse, transactionsResponse] = await Promise.all([
-				getSalesSummary(payload),
-				getTransactionsToday(payload),
-			])
+    try {
+      const payload = normalized
+        ? { from: normalized.from.toISOString(), to: normalized.to.toISOString() }
+        : undefined
 
-			if (!summaryResponse.success || !summaryResponse.data) {
-				throw new Error(summaryResponse.error ?? "Gagal memuat ringkasan penjualan")
-			}
+      const response = await getReportsAnalytics(payload)
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "Gagal memuat laporan")
+      }
 
-			if (!transactionsResponse.success || !transactionsResponse.data) {
-				throw new Error(transactionsResponse.error ?? "Gagal memuat transaksi harian")
-			}
+      setAnalytics(response.data)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Gagal memuat laporan")
+    } finally {
+      if (initial) {
+        setLoading(false)
+      } else {
+        setRefreshing(false)
+      }
+    }
+  }, [])
 
-			setSummary(summaryResponse.data)
-			setTransactions(transactionsResponse.data)
-			setFilteredTransactions(transactionsResponse.data)
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Gagal memuat laporan")
-		} finally {
-			if (initial) {
-				setLoading(false)
-			} else {
-				setIsRefreshing(false)
-			}
-		}
-	}, [])
+  useEffect(() => {
+    void loadReports(rangeRef.current, true)
+  }, [loadReports])
 
-	useEffect(() => {
-		void loadReports(rangeRef.current, true)
-	}, [loadReports])
+  useEffect(() => {
+    if (isCalendarOpen) {
+      setPendingRange(dateRange)
+    }
+  }, [isCalendarOpen, dateRange])
 
-	useEffect(() => {
-		let filtered = [...transactions]
+  const transactions = analytics?.transactions ?? []
+  const itemSales = analytics?.itemSales ?? []
+  const expenses = analytics?.expenses ?? []
+  const capitalEntries = analytics?.capitalEntries ?? []
 
-		if (searchTerm) {
-			const keyword = searchTerm.toLowerCase()
-			filtered = filtered.filter((tx) => {
-				const idMatch = tx.id?.toLowerCase().includes(keyword)
-				const customerMatch = tx.customerName?.toLowerCase().includes(keyword)
-				return idMatch || customerMatch
-			})
-		}
+  const filteredTransactions = useMemo(() => {
+    let rows = [...transactions]
 
-		if (paymentFilter !== "all") {
-			filtered = filtered.filter((tx) => tx.paymentMethod === paymentFilter)
-		}
+    if (searchTerm) {
+      const keyword = searchTerm.toLowerCase()
+      rows = rows.filter((row) => {
+        return (
+          row.id.toLowerCase().includes(keyword) ||
+          (row.customerName ?? "").toLowerCase().includes(keyword)
+        )
+      })
+    }
 
-		setFilteredTransactions(filtered)
-	}, [transactions, searchTerm, paymentFilter])
+    if (paymentFilter !== "all") {
+      rows = rows.filter((row) => row.paymentMethod === paymentFilter)
+    }
 
-	useEffect(() => {
-		if (isCalendarOpen) {
-			setPendingRange(dateRange)
-		}
-	}, [isCalendarOpen, dateRange])
+    return rows
+  }, [transactions, searchTerm, paymentFilter])
 
-	const paymentStats = useMemo(() => {
-		const base = {
-			cash: { count: 0, amount: 0 },
-			qris: { count: 0, amount: 0 },
-			kasbon: { count: 0, amount: 0 },
-		}
+  const productOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const row of itemSales) {
+      if (categoryFilter !== "all" && row.productCategory !== categoryFilter) continue
+      map.set(row.productId, row.productName)
+    }
 
-		for (const tx of transactions) {
-			const payment = tx.paymentMethod as PaymentMethod
-			if (!payment) continue
-			base[payment].count += 1
-			base[payment].amount += Number(tx.totalAmount ?? 0)
-		}
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "id-ID"))
+  }, [itemSales, categoryFilter])
 
-		const totalCount = transactions.length || 1
-		const totalAmount = Object.values(base).reduce((sum, entry) => sum + entry.amount, 0) || 1
+  useEffect(() => {
+    if (productFilter === "all") return
+    const exists = productOptions.some((product) => product.id === productFilter)
+    if (!exists) {
+      setProductFilter("all")
+    }
+  }, [productFilter, productOptions])
 
-		return {
-			breakdown: base,
-			countTotal: totalCount,
-			amountTotal: totalAmount,
-		}
-	}, [transactions])
+  const totalSales = useMemo(() => transactions.reduce((sum, row) => sum + row.totalAmount, 0), [transactions])
+  const totalCogs = useMemo(() => transactions.reduce((sum, row) => sum + row.totalCost, 0), [transactions])
 
-	const ticketAverage = summary && summary.transactionCount > 0 ? summary.totalSales / summary.transactionCount : 0
-	const itemsPerTransaction = summary && summary.transactionCount > 0 ? summary.totalItems / summary.transactionCount : 0
+  const grossProfit = useMemo(
+    () => transactions.reduce((sum, row) => sum + (row.totalProfit > 0 ? row.totalProfit : row.totalAmount - row.totalCost), 0),
+    [transactions],
+  )
 
-	const discountValue = useMemo(() => {
-		return transactions.reduce((acc, tx) => {
-			const total = Number(tx.totalAmount ?? 0)
-			const discountPercent = typeof tx.customerDiscountPercent === "number" ? tx.customerDiscountPercent : 0
-			if (discountPercent <= 0 || discountPercent >= 100) {
-				return acc
-			}
-			const baseAmount = total / (1 - discountPercent / 100)
-			if (!Number.isFinite(baseAmount)) {
-				return acc
-			}
-			return acc + (baseAmount - total)
-		}, 0)
-	}, [transactions])
+  const totalExpenses = useMemo(() => expenses.reduce((sum, row) => sum + row.amount, 0), [expenses])
+  const netProfit = grossProfit - totalExpenses
 
-	const profitLoss = useMemo(() => {
-		if (!summary) return null
+  const setoranModal = useMemo(
+    () => capitalEntries
+      .filter((entry) => entry.type === "in" && !(entry.note ?? "").startsWith("AUTO:"))
+      .reduce((sum, entry) => sum + entry.amount, 0),
+    [capitalEntries],
+  )
 
-		const netRevenue = Number(summary.totalSales ?? 0)
-		const grossRevenue = netRevenue + discountValue
-		const recordedCost = typeof summary.totalCost === "number" ? summary.totalCost : Number(summary.totalCost ?? 0)
-		const recordedProfit = typeof summary.totalProfit === "number" ? summary.totalProfit : Number(summary.totalProfit ?? 0)
-		const costOfGoods = recordedCost > 0 ? recordedCost : netRevenue * DEFAULT_COGS_RATIO
-		const grossProfit = recordedProfit > 0 ? recordedProfit : netRevenue - costOfGoods
-		const operationalExpenses = netRevenue * DEFAULT_OPEX_RATIO
-		const tax = netRevenue * VAT_RATE
-		const netProfit = grossProfit - operationalExpenses - tax
+  const modalKeluar = useMemo(
+    () => capitalEntries.filter((entry) => entry.type === "out").reduce((sum, entry) => sum + entry.amount, 0),
+    [capitalEntries],
+  )
 
-		return {
-			grossRevenue,
-			discounts: discountValue,
-			netRevenue,
-			costOfGoods,
-			grossProfit,
-			operationalExpenses,
-			tax,
-			netProfit,
-			hasActualCost: recordedCost > 0,
-			hasActualProfit: recordedProfit > 0,
-		}
-	}, [summary, discountValue])
+  const rangeLabel = useMemo(() => {
+    if (analytics?.range) {
+      return formatRangeLabel({ from: analytics.range.from, to: analytics.range.to })
+    }
+    return formatRangeLabel(dateRange)
+  }, [analytics?.range, dateRange])
 
-	const rangeLabel = useMemo(() => {
-		if (summary?.range) {
-			return formatRangeLabel({ from: summary.range.from, to: summary.range.to })
-		}
-		return formatRangeLabel(dateRange)
-	}, [summary, dateRange])
+  const daysInRange = useMemo(() => {
+    const normalized = normalizeClientRange(dateRange)
+    if (!normalized) return 1
+    const diff = normalized.to.getTime() - normalized.from.getTime()
+    return Math.max(1, Math.floor(diff / (24 * 60 * 60 * 1000)) + 1)
+  }, [dateRange])
 
-	const trendSeries = useMemo(() => buildTrendSeries(transactions, trendMode), [transactions, trendMode])
+  const dailyBurnRate = (totalCogs + totalExpenses) / daysInRange
+  const minimumReserve = dailyBurnRate * DEFAULT_RESERVE_DAYS
+  const currentBalance = analytics?.currentCapitalBalance ?? 0
+  const availableForOwner = currentBalance - minimumReserve
 
-	const handleApplyRange = (nextRange?: DateRange) => {
-		if (!nextRange?.from) {
-			toast.error("Pilih tanggal mulai terlebih dahulu")
-			return
-		}
+  const healthStatus = useMemo(() => {
+    if (currentBalance <= 0) {
+      return {
+        label: "Bahaya",
+        badgeClass: "bg-rose-50 text-rose-700 border border-rose-100",
+        helper: "Saldo modal sudah habis. Jangan ambil dana owner.",
+      }
+    }
 
-		const normalized = normalizeClientRange(nextRange)
-		if (!normalized) return
+    if (availableForOwner <= 0) {
+      return {
+        label: "Waspada",
+        badgeClass: "bg-amber-50 text-amber-700 border border-amber-100",
+        helper: "Dana owner belum aman diambil. Prioritaskan putaran modal.",
+      }
+    }
 
-		const appliedRange: DateRange = {
-			from: normalized.from,
-			to: normalized.to,
-		}
+    return {
+      label: "Aman",
+      badgeClass: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+      helper: "Ada buffer modal. Owner bisa ambil sebagian sesuai batas aman.",
+    }
+  }, [currentBalance, availableForOwner])
 
-		setDateRange(appliedRange)
-		setPendingRange(appliedRange)
-		void loadReports(appliedRange)
-		setIsCalendarOpen(false)
-	}
+  const profitSeries = useMemo(
+    () => buildProfitSeries(transactions, expenses, trendMode),
+    [transactions, expenses, trendMode],
+  )
 
-	const handleResetRange = () => {
-		const defaultRange = createDefaultRange()
-		setDateRange(defaultRange)
-		setPendingRange(defaultRange)
-		void loadReports(defaultRange)
-		setIsCalendarOpen(false)
-	}
+  const capitalSeries = useMemo(
+    () => buildCapitalSeries(capitalEntries, analytics?.openingCapitalBalance ?? 0, trendMode),
+    [capitalEntries, analytics?.openingCapitalBalance, trendMode],
+  )
 
-	const handleTrendModeChange = (value: TrendMode | "") => {
-		if (!value) return
-		setTrendMode(value)
-	}
+  const salesSeries = useMemo(
+    () => buildMonthlySalesSeries(itemSales, categoryFilter, productFilter),
+    [itemSales, categoryFilter, productFilter],
+  )
 
-	const handleExport = (variant: "sales" | "profit") => {
-		if (variant === "sales") {
-			if (filteredTransactions.length === 0) {
-				toast.error("Tidak ada transaksi untuk diekspor")
-				return
-			}
+  const topProducts = useMemo(
+    () => buildTopProductSeries(itemSales, categoryFilter, productFilter),
+    [itemSales, categoryFilter, productFilter],
+  )
 
-			const headers = ["Transaction ID", "Pelanggan", "Metode", "Item", "Tanggal", "Waktu", "Total"]
-			const rows = filteredTransactions.map((tx) => [
-				tx.id,
-				tx.customerName ?? "Walk-in",
-				paymentMeta[tx.paymentMethod as PaymentMethod]?.label ?? tx.paymentMethod,
-				String(tx.itemCount ?? 0),
-				formatDateLabel(tx.createdAt),
-				formatTimeLabel(tx.createdAt),
-				Number(tx.totalAmount ?? 0).toString(),
-			])
+  const expenseCategorySeries = useMemo(() => buildExpenseCategorySeries(expenses), [expenses])
+  const expenseTrendSeries = useMemo(() => buildExpenseTrendSeries(expenses), [expenses])
 
-			const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n")
-			const fileName = `penjualan-${slugify(rangeLabel || "periode")}.csv`
+  const handleApplyRange = (nextRange?: DateRange) => {
+    if (!nextRange?.from) {
+      toast.error("Pilih tanggal mulai terlebih dahulu")
+      return
+    }
 
-			if (typeof window === "undefined") return
-			const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-			const url = window.URL.createObjectURL(blob)
-			const link = document.createElement("a")
-			link.href = url
-			link.setAttribute("download", fileName)
-			document.body.appendChild(link)
-			link.click()
-			link.remove()
-			window.URL.revokeObjectURL(url)
-			toast.success("Data penjualan berhasil diunduh")
-			return
-		}
+    const normalized = normalizeClientRange(nextRange)
+    if (!normalized) return
 
-		if (!profitLoss) {
-			toast.error("Data laba rugi belum siap")
-			return
-		}
+    const applied: DateRange = {
+      from: normalized.from,
+      to: normalized.to,
+    }
 
-		const headers = ["Kategori", "Nilai (IDR)"]
-		const rows = [
-			["Pendapatan Bruto", formatCurrency(profitLoss.grossRevenue)],
-			["Diskon", formatCurrency(profitLoss.discounts)],
-			["Penjualan Bersih", formatCurrency(profitLoss.netRevenue)],
-			[
-				profitLoss.hasActualCost
-					? "HPP (Data POS)"
-					: `HPP (Estimasi ${Math.round(DEFAULT_COGS_RATIO * 100)}%)`,
-				formatCurrency(profitLoss.costOfGoods),
-			],
-			["Laba Kotor", formatCurrency(profitLoss.grossProfit)],
-			[
-				`Beban Operasional (${Math.round(DEFAULT_OPEX_RATIO * 100)}%)`,
-				formatCurrency(profitLoss.operationalExpenses),
-			],
-			[`PPN ${Math.round(VAT_RATE * 100)}%`, formatCurrency(profitLoss.tax)],
-			[
-				profitLoss.hasActualProfit ? "Laba Bersih (Data POS)" : "Laba Bersih",
-				formatCurrency(profitLoss.netProfit),
-			],
-		]
+    setDateRange(applied)
+    setPendingRange(applied)
+    void loadReports(applied)
+    setIsCalendarOpen(false)
+  }
 
-		const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n")
-		const fileName = `laba-rugi-${slugify(rangeLabel || "periode")}.csv`
+  const handleResetRange = () => {
+    const defaultRange = createDefaultRange()
+    setDateRange(defaultRange)
+    setPendingRange(defaultRange)
+    void loadReports(defaultRange)
+    setIsCalendarOpen(false)
+  }
 
-		if (typeof window === "undefined") return
-		const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-		const url = window.URL.createObjectURL(blob)
-		const link = document.createElement("a")
-		link.href = url
-		link.setAttribute("download", fileName)
-		document.body.appendChild(link)
-		link.click()
-		link.remove()
-		window.URL.revokeObjectURL(url)
-		toast.success("Laporan laba rugi berhasil diunduh")
-	}
+  const handleExport = (variant: "transactions" | "profit") => {
+    if (variant === "transactions") {
+      if (filteredTransactions.length === 0) {
+        toast.error("Tidak ada transaksi untuk diekspor")
+        return
+      }
 
-	if (loading) {
-		return (
-			<div className="flex min-h-[420px] items-center justify-center">
-				<div className="flex flex-col items-center gap-3 text-secondary">
-					<Loader2 className="h-6 w-6 animate-spin text-primary" aria-hidden />
-					<p className="text-base font-medium">Menyiapkan laporan penjualan…</p>
-				</div>
-			</div>
-		)
-	}
+      const rows: Array<Array<string | number>> = [
+        ["Transaction ID", "Pelanggan", "Metode", "Item", "Tanggal", "Total"],
+        ...filteredTransactions.map((row) => [
+          row.id,
+          row.customerName ?? "Walk-in",
+          PAYMENT_LABEL[row.paymentMethod as PaymentMethod] ?? row.paymentMethod,
+          row.itemCount,
+          formatDateLabel(row.createdAt),
+          row.totalAmount,
+        ]),
+      ]
 
-	return (
-		<div className="space-y-8 px-6 pb-12">
-			<div className="flex flex-wrap items-center justify-between gap-4 py-4">
-				<div className="space-y-2">
-					<p className="text-xs font-semibold uppercase tracking-wider text-muted">Dashboard</p>
-					<h1 className="text-3xl font-semibold text-primary">Laporan Penjualan</h1>
-					<p className="text-sm text-secondary">Periode {rangeLabel}</p>
-				</div>
-				<div className="flex flex-wrap items-center gap-3">
-					<Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-						<PopoverTrigger asChild>
-							<Button
-								variant="outline"
-								className="h-11 min-w-[220px] justify-start gap-2 rounded-xl border-medium/60 px-5 text-left text-sm font-semibold text-secondary"
-							>
-								<CalendarDays className="h-4 w-4" aria-hidden />
-								<span>Filter tanggal</span>
-								<span className="font-normal text-muted">{rangeLabel}</span>
-							</Button>
-						</PopoverTrigger>
-						<PopoverContent className="w-auto space-y-4 rounded-2xl border border-medium/40 p-4" align="end">
-							<Calendar
-								mode="range"
-								numberOfMonths={2}
-								selected={pendingRange}
-								onSelect={setPendingRange}
-								defaultMonth={pendingRange?.from}
-							/>
-							<div className="flex items-center justify-between gap-3">
-								<Button variant="ghost" size="sm" onClick={handleResetRange}>
-									Reset 7 hari
-								</Button>
-								<div className="flex gap-2">
-									<Button variant="outline" size="sm" onClick={() => setIsCalendarOpen(false)}>
-										Batal
-									</Button>
-									<Button size="sm" onClick={() => handleApplyRange(pendingRange)}>
-										Terapkan
-									</Button>
-								</div>
-							</div>
-						</PopoverContent>
-					</Popover>
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant="outline"
-								className="h-11 rounded-xl border-medium/60 px-5 text-sm font-semibold"
-							>
-								<Download className="mr-2 h-4 w-4" aria-hidden />
-								Unduh Laporan
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" className="w-48 rounded-xl border border-medium/40">
-							<DropdownMenuItem onClick={() => handleExport("sales")}>
-								Penjualan (CSV)
-							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => handleExport("profit")}>
-								Laba Rugi (CSV)
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-					<Button
-						className="h-11 rounded-xl px-5 text-sm font-semibold"
-						onClick={() => void loadReports()}
-						disabled={isRefreshing}
-					>
-						{isRefreshing ? (
-							<Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-						) : (
-							<RefreshCcw className="mr-2 h-4 w-4" aria-hidden />
-						)}
-						Muat Ulang
-					</Button>
-				</div>
-			</div>
+      downloadCsv(`laporan-transaksi-${Date.now()}.csv`, rows)
+      toast.success("Data transaksi berhasil diunduh")
+      return
+    }
 
-			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-				<Card className="rounded-xl border border-medium/60 bg-white shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)]">
-					<CardContent className="space-y-3 p-6">
-						<div className="flex items-center justify-between">
-							<p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">Total Sales</p>
-							<Wallet className="h-5 w-5 text-primary" aria-hidden />
-						</div>
-						<p className="text-3xl font-semibold text-primary">{formatCurrency(summary?.totalSales ?? 0)}</p>
-						<p className="text-xs text-secondary">Periode {rangeLabel}</p>
-					</CardContent>
-				</Card>
+    const rows: Array<Array<string | number>> = [
+      ["Metrik", "Nilai"],
+      ["Penjualan Bruto", totalSales],
+      ["HPP", totalCogs],
+      ["Laba Kotor", grossProfit],
+      ["Pengeluaran", totalExpenses],
+      ["Laba Bersih", netProfit],
+      ["Setoran Modal Manual", setoranModal],
+      ["Modal Keluar", modalKeluar],
+      ["Saldo Modal Saat Ini", currentBalance],
+      ["Modal Minimum Aman", minimumReserve],
+      ["Dana Boleh Diambil Owner", Math.max(0, availableForOwner)],
+    ]
 
-				<Card className="rounded-xl border border-medium/60 bg-white shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)]">
-					<CardContent className="space-y-3 p-6">
-						<div className="flex items-center justify-between">
-							<p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">Transaksi</p>
-							<BarChart3 className="h-5 w-5 text-primary" aria-hidden />
-						</div>
-						<p className="text-3xl font-semibold text-primary">{summary?.transactionCount ?? 0}</p>
-						<p className="text-xs text-secondary">Rata-rata item {itemsPerTransaction.toFixed(1)} / transaksi</p>
-					</CardContent>
-				</Card>
+    downloadCsv(`laporan-profit-modal-${Date.now()}.csv`, rows)
+    toast.success("Laporan profit dan modal berhasil diunduh")
+  }
 
-				<Card className="rounded-xl border border-medium/60 bg-white shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)]">
-					<CardContent className="space-y-3 p-6">
-						<div className="flex items-center justify-between">
-							<p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">Item Terjual</p>
-							<TicketPercent className="h-5 w-5 text-primary" aria-hidden />
-						</div>
-						<p className="text-3xl font-semibold text-primary">{summary?.totalItems ?? 0}</p>
-						<p className="text-xs text-secondary">Avg ticket {formatCurrency(ticketAverage || 0)}</p>
-					</CardContent>
-				</Card>
+  if (loading) {
+    return <PageLoadingState title="Menyiapkan laporan bisnis" />
+  }
 
-				<Card className="rounded-xl border border-medium/60 bg-white shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)]">
-					<CardContent className="space-y-3 p-6">
-						<div className="flex items-center justify-between">
-							<p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">Payment Mix</p>
-							<Wallet className="h-5 w-5 text-primary" aria-hidden />
-						</div>
-						<div className="space-y-2">
-							{(Object.keys(paymentMeta) as PaymentMethod[]).map((method) => {
-								const data = paymentStats.breakdown[method]
-								const percentage = Math.round((data.amount / paymentStats.amountTotal) * 100)
-								return (
-									<div key={method} className="space-y-1">
-										<div className="flex items-center justify-between text-xs text-secondary">
-											<span className="font-medium text-primary">{paymentMeta[method].label}</span>
-											<span>{percentage || 0}%</span>
-										</div>
-										<div className="h-2 rounded-full bg-surface-secondary">
-											<div
-												className={`h-2 rounded-full ${paymentMeta[method].accent}`}
-												style={{ width: `${percentage}%` }}
-											/>
-										</div>
-									</div>
-								)
-							})}
-						</div>
-					</CardContent>
-				</Card>
-			</div>
+  return (
+    <div className="table-page simple-page reports-page">
+      <TablePageHeader
+        title="Laporan Bisnis"
+        subtitle={`Periode ${rangeLabel}`}
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Cari transaksi ID atau nama pelanggan"
+        rightContent={
+          <>
+            <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="h-11 gap-2 px-5 text-sm">
+                  <CalendarDays className="h-4 w-4" aria-hidden />
+                  Ubah Periode
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto space-y-4 rounded-2xl border border-medium/40 p-4" align="end">
+                <Calendar
+                  mode="range"
+                  numberOfMonths={2}
+                  selected={pendingRange}
+                  onSelect={setPendingRange}
+                  defaultMonth={pendingRange?.from}
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <Button variant="ghost" size="sm" onClick={handleResetRange}>
+                    Reset 30 hari
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setIsCalendarOpen(false)}>
+                      Batal
+                    </Button>
+                    <Button size="sm" onClick={() => handleApplyRange(pendingRange)}>
+                      Terapkan
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
 
-			<Card className="rounded-xl border border-medium/60 bg-white shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)]">
-				<CardHeader className="flex flex-wrap items-center justify-between gap-4 border-b border-medium/40 pb-5">
-					<div>
-						<div className="flex items-center gap-2 text-sm font-medium text-primary">
-							<span className="h-2 w-2 rounded-xl bg-primary" aria-hidden />
-							Tren Penjualan
-						</div>
-						<p className="text-sm text-secondary">Visualisasi pendapatan berdasarkan pilihan periode.</p>
-					</div>
-					<ToggleGroup
-						type="single"
-						value={trendMode}
-						onValueChange={handleTrendModeChange}
-						variant="outline"
-						size="sm"
-						className="rounded-lg shadow-xs"
-					>
-						<ToggleGroupItem value="daily" aria-label="Tampilkan tren harian">
-							Harian
-						</ToggleGroupItem>
-						<ToggleGroupItem value="weekly" aria-label="Tampilkan tren mingguan">
-							Mingguan
-						</ToggleGroupItem>
-						<ToggleGroupItem value="monthly" aria-label="Tampilkan tren bulanan">
-							Bulanan
-						</ToggleGroupItem>
-					</ToggleGroup>
-				</CardHeader>
-				<CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-					{trendSeries.length > 0 ? (
-						<ChartContainer config={trendChartConfig} className="aspect-auto h-[320px] w-full">
-							<AreaChart data={trendSeries} margin={{ left: 12, right: 12 }}>
-								<defs>
-									<linearGradient id="fillSales" x1="0" y1="0" x2="0" y2="1">
-										<stop offset="5%" stopColor="var(--color-sales)" stopOpacity={0.8} />
-										<stop offset="95%" stopColor="var(--color-sales)" stopOpacity={0.05} />
-									</linearGradient>
-								</defs>
-								<CartesianGrid vertical={false} strokeDasharray="3 3" />
-								<XAxis
-									dataKey="label"
-									tickLine={false}
-									axisLine={false}
-									tickMargin={10}
-									minTickGap={20}
-								/>
-								<ChartTooltip
-									cursor={false}
-									content={
-										<ChartTooltipContent
-											indicator="dot"
-											labelFormatter={(_, payload) => payload?.[0]?.payload.rangeLabel ?? ""}
-											formatter={(value) => (
-												<div className="flex w-full items-center justify-between gap-4">
-													<span>Penjualan</span>
-													<span className="font-mono font-semibold text-primary">
-														{formatCurrency(Number(value) || 0)}
-													</span>
-												</div>
-											)}
-										/>
-									}
-								/>
-								<Area
-									type="monotone"
-									dataKey="sales"
-									stroke="var(--color-sales)"
-									strokeWidth={3}
-									fill="url(#fillSales)"
-									activeDot={{ r: 5 }}
-								/>
-							</AreaChart>
-						</ChartContainer>
-					) : (
-						<div className="rounded-lg border border-dashed border-medium/50 py-12 text-center text-secondary">
-							Belum ada data tren untuk rentang tanggal ini.
-						</div>
-					)}
-				</CardContent>
-			</Card>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-11 px-5 text-sm">
+                  <Download className="mr-2 h-4 w-4" aria-hidden />
+                  Unduh
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52 rounded-xl border border-medium/40">
+                <DropdownMenuItem onClick={() => handleExport("transactions")}>Transaksi (CSV)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport("profit")}>Profit & Modal (CSV)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-			<Card className="rounded-xl border border-medium/60 bg-white shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)]">
-				<CardHeader className="space-y-2 border-b border-medium/40 pb-5">
-					<div className="flex items-center gap-2 text-sm font-medium text-primary">
-						<span className="h-2 w-2 rounded-xl bg-primary" aria-hidden />
-						Laporan Laba Rugi
-					</div>
-					<p className="text-sm text-secondary">Estimasi otomatis untuk kebutuhan akuntansi & pajak.</p>
-				</CardHeader>
-				<CardContent className="space-y-4 pt-6">
-					{profitLoss ? (
-						<div className="divide-y divide-medium/30 rounded-xl border border-medium/40">
-							{[
-								{ key: "gross", label: "Pendapatan Bruto", value: profitLoss.grossRevenue },
-								{ key: "discounts", label: "Diskon Membership", value: profitLoss.discounts, prefix: "-" },
-								{ key: "net", label: "Penjualan Bersih", value: profitLoss.netRevenue, highlight: true },
-								{
-									key: "cogs",
-									label: profitLoss.hasActualCost
-										? "HPP (Data POS)"
-										: `HPP (Estimasi ${Math.round(DEFAULT_COGS_RATIO * 100)}%)`,
-									value: profitLoss.costOfGoods,
-									prefix: "-",
-								},
-								{ key: "grossProfit", label: "Laba Kotor", value: profitLoss.grossProfit },
-								{
-									key: "opex",
-									label: `Beban Operasional (${Math.round(DEFAULT_OPEX_RATIO * 100)}%)`,
-									value: profitLoss.operationalExpenses,
-									prefix: "-",
-								},
-								{
-									key: "tax",
-									label: `PPN ${Math.round(VAT_RATE * 100)}%`,
-									value: profitLoss.tax,
-									prefix: "-",
-								},
-								{
-									key: "netProfit",
-									label: profitLoss.hasActualProfit ? "Laba Bersih (Data POS)" : "Laba Bersih",
-									value: profitLoss.netProfit,
-									highlight: true,
-								},
-							].map((row) => (
-								<div key={row.key} className="flex items-center justify-between gap-4 px-4 py-3">
-									<p className="text-sm font-medium text-primary">{row.label}</p>
-									<p className={`text-sm font-semibold ${row.highlight ? "text-primary" : "text-secondary"}`}>
-										{row.prefix === "-" ? `- ${formatCurrency(row.value)}` : formatCurrency(row.value)}
-									</p>
-								</div>
-							))}
-						</div>
-					) : (
-						<div className="rounded-lg border border-dashed border-medium/50 px-4 py-8 text-center text-secondary">
-							Tidak ada data laba rugi untuk rentang tanggal ini.
-						</div>
-					)}
-					<p className="text-xs text-muted">
-						{profitLoss
-							? profitLoss.hasActualCost || profitLoss.hasActualProfit
-								? "Catatan: HPP dan laba bersih langsung mengambil data aktual dari POS, sedangkan beban operasional & pajak masih estimasi."
-								: "Catatan: HPP dan beban operasional dihitung otomatis berdasarkan persentase default dan dapat disesuaikan di modul pengaturan nantinya."
-							: "Catatan: sistem akan menghitung HPP dan laba setelah ada transaksi pada rentang tanggal ini."}
-					</p>
-				</CardContent>
-			</Card>
+            <Button className="h-11 px-5 text-sm" onClick={() => void loadReports()} disabled={refreshing}>
+              {refreshing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCcw className="mr-2 h-4 w-4" aria-hidden />
+              )}
+              Muat Ulang
+            </Button>
+          </>
+        }
+      />
 
-			<Card className="rounded-xl border border-medium/60 bg-white shadow-[0_26px_80px_-48px_rgba(15,23,42,0.55)]">
-				<CardContent className="space-y-4 p-6">
-					<div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
-						<div className="relative">
-							<Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-							<Input
-								value={searchTerm}
-								onChange={(event) => setSearchTerm(event.target.value)}
-								placeholder="Cari ID transaksi atau nama pelanggan"
-								className="h-12 rounded-lg border-medium/50 pl-11 pr-4 shadow-sm focus-visible:border-primary/60"
-							/>
-						</div>
-						<Select value={paymentFilter} onValueChange={(value) => setPaymentFilter(value as PaymentMethod | "all")}>
-							<SelectTrigger className="h-12 w-full rounded-lg border-medium/50 bg-surface px-4 text-sm shadow-sm focus-visible:border-primary/60">
-								<SelectValue placeholder="Filter pembayaran" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="all">Semua Metode</SelectItem>
-								<SelectItem value="cash">Tunai</SelectItem>
-								<SelectItem value="qris">QRIS</SelectItem>
-								<SelectItem value="kasbon">Kasbon</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-				</CardContent>
-			</Card>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <MetricCard
+          title="Penjualan Bruto"
+          value={formatCurrency(totalSales)}
+          hint={`${transactions.length} transaksi`}
+          icon={<TrendingUp className="h-4 w-4" aria-hidden />}
+        />
+        <MetricCard
+          title="HPP"
+          value={formatCurrency(totalCogs)}
+          hint="Modal barang terjual"
+          icon={<Wallet className="h-4 w-4" aria-hidden />}
+        />
+        <MetricCard
+          title="Laba Kotor"
+          value={formatCurrency(grossProfit)}
+          hint="Sebelum pengeluaran"
+          tone={grossProfit >= 0 ? "positive" : "negative"}
+          icon={<TrendingUp className="h-4 w-4" aria-hidden />}
+        />
+        <MetricCard
+          title="Pengeluaran"
+          value={formatCurrency(totalExpenses)}
+          hint={`${expenses.length} catatan pengeluaran`}
+          icon={<AlertTriangle className="h-4 w-4" aria-hidden />}
+        />
+        <MetricCard
+          title="Laba Bersih"
+          value={formatCurrency(netProfit)}
+          hint="Setelah pengeluaran"
+          tone={netProfit >= 0 ? "positive" : "negative"}
+          icon={<TrendingUp className="h-4 w-4" aria-hidden />}
+        />
+        <MetricCard
+          title="Saldo Modal Saat Ini"
+          value={formatCurrency(currentBalance)}
+          hint={`Setoran manual: ${formatCurrency(setoranModal)}`}
+          icon={<Wallet className="h-4 w-4" aria-hidden />}
+        />
+      </div>
 
-			<Card className="rounded-xl border border-medium/70 bg-white shadow-[0_26px_80px_-48px_rgba(15,23,42,0.55)]">
-				<CardHeader className="space-y-2 border-b border-medium/40 pb-6">
-					<div className="flex items-center gap-2 text-sm font-medium text-primary">
-						<span className="h-2 w-2 rounded-xl bg-primary" aria-hidden />
-						Transaksi Hari Ini
-					</div>
-					<CardTitle className="text-2xl font-semibold text-primary">
-						{filteredTransactions.length} transaksi ditemukan
-					</CardTitle>
-					<p className="text-sm text-secondary">
-						Daftar transaksi yang sudah dibayar lengkap dengan pelanggan, metode, dan nilai total.
-					</p>
-				</CardHeader>
-				<CardContent className="pt-6">
-					{filteredTransactions.length === 0 ? (
-						<div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-secondary">
-							<BarChart3 className="h-10 w-10 text-muted" aria-hidden />
-							<div>
-								<p className="text-lg font-semibold text-primary">Belum ada transaksi</p>
-								<p className="text-sm text-muted">Coba ulangi filter atau muat ulang data.</p>
-							</div>
-						</div>
-					) : (
-						<div className="overflow-hidden rounded-xl border border-medium/40">
-							<Table className="bg-white text-sm">
-								<TableHeader className="bg-surface-secondary/70">
-									<TableRow className="border-medium/40">
-										<TableHead className="w-[220px] text-xs font-semibold uppercase tracking-widest text-secondary">Transaksi</TableHead>
-										<TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Pelanggan</TableHead>
-										<TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Metode</TableHead>
-										<TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Item</TableHead>
-										<TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Waktu</TableHead>
-										<TableHead className="text-right text-xs font-semibold uppercase tracking-widest text-secondary">Total</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{filteredTransactions.map((transaction) => {
-										const paymentMethod = transaction.paymentMethod as PaymentMethod
-										const paymentInfo = paymentMeta[paymentMethod] ?? paymentMeta.cash
-										return (
-											<TableRow key={transaction.id} className="border-medium/30 transition hover:bg-surface-secondary/60">
-												<TableCell className="font-mono text-xs text-secondary">
-													<p className="text-sm font-semibold text-primary">{transaction.id}</p>
-													<p className="text-xs text-muted">{transaction.status}</p>
-												</TableCell>
-												<TableCell>
-													<p className="text-sm font-semibold text-primary">{transaction.customerName ?? "Walk-in"}</p>
-													{transaction.customerDiscountPercent ? (
-														<p className="text-xs text-success">Diskon {transaction.customerDiscountPercent}%</p>
-													) : (
-														<p className="text-xs text-muted">Tanpa membership</p>
-													)}
-												</TableCell>
-												<TableCell>
-													<span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${paymentInfo.badgeClass}`}>
-														<span className={`h-1.5 w-1.5 rounded-full ${paymentInfo.accent}`} aria-hidden />
-														{paymentInfo.label}
-													</span>
-												</TableCell>
-												<TableCell className="text-sm font-semibold text-primary">{transaction.itemCount ?? 0}</TableCell>
-												<TableCell>
-													<div className="flex flex-col text-xs text-secondary">
-														<span className="flex items-center gap-2 text-sm font-medium text-primary">
-															<CalendarDays className="h-3.5 w-3.5 text-muted" aria-hidden />
-															{formatDateLabel(transaction.createdAt)}
-														</span>
-														<span className="text-muted">{formatTimeLabel(transaction.createdAt)}</span>
-													</div>
-												</TableCell>
-												<TableCell className="text-right text-sm font-semibold text-primary">
-													{formatCurrency(Number(transaction.totalAmount ?? 0))}
-												</TableCell>
-											</TableRow>
-										)
-									})}
-								</TableBody>
-							</Table>
-						</div>
-					)}
-				</CardContent>
-			</Card>
-		</div>
-	)
+      <div className="grid gap-4 xl:grid-cols-2">
+        <TableSectionCard
+          title="Tren Profit"
+          description="Laba kotor vs laba bersih berdasarkan periode"
+          controls={
+            <Select value={trendMode} onValueChange={(value) => setTrendMode(value as TrendMode)}>
+              <SelectTrigger className="h-10 w-[150px] rounded-lg border-medium/40 bg-white">
+                <SelectValue placeholder="Pilih tren" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="daily">Harian</SelectItem>
+                <SelectItem value="weekly">Mingguan</SelectItem>
+                <SelectItem value="monthly">Bulanan</SelectItem>
+              </SelectContent>
+            </Select>
+          }
+          isEmpty={profitSeries.length === 0}
+          emptyState={<TableEmptyState title="Belum ada data profit" description="Transaksi dan pengeluaran belum cukup untuk dibentuk grafik." icon={TrendingUp} />}
+        >
+          <div className="report-chart-wrap h-[320px] w-full p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={profitSeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="4 4" vertical={false} stroke={CHART_GRID_STROKE} />
+                <XAxis dataKey="label" tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} tickMargin={8} />
+                <YAxis tickFormatter={formatAxisNumber} tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} width={56} />
+                <Tooltip
+                  cursor={{ stroke: "#c7d3e4", strokeDasharray: "4 4" }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                  labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                  wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+                  formatter={(value) => formatCurrency(asNumber(value))}
+                />
+                <Line type="monotone" dataKey="grossProfit" name="Laba Kotor" stroke="#266dbe" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="netProfit" name="Laba Bersih" stroke="#10b981" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="report-chart-legend px-3 pb-3">
+            <span className="report-legend-item">
+              <span className="report-legend-dot bg-[#266dbe]" />
+              Laba Kotor
+            </span>
+            <span className="report-legend-item">
+              <span className="report-legend-dot bg-[#10b981]" />
+              Laba Bersih
+            </span>
+          </div>
+        </TableSectionCard>
+
+        <TableSectionCard
+          title="Kesehatan Modal"
+          description="Pantau apakah modal aman dipakai atau harus ditahan"
+          headerContent={
+            <Badge className={cn("rounded-full px-3 py-1 text-xs font-semibold", healthStatus.badgeClass)}>
+              {healthStatus.label}
+            </Badge>
+          }
+          isEmpty={capitalSeries.length === 0}
+          emptyState={<TableEmptyState title="Belum ada data modal" description="Belum ada pergerakan modal di periode ini." icon={Wallet} />}
+        >
+          <div className="space-y-3 p-3">
+            <div className="grid gap-2 rounded-xl border border-[#e7edf6] bg-[#fbfdff] p-3 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#98a2b3]">Modal Minimum Aman</p>
+                <p className="mt-1 text-lg font-semibold text-[#101828]">{formatCurrency(minimumReserve)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#98a2b3]">Dana Boleh Diambil Owner</p>
+                <p className={cn("mt-1 text-lg font-semibold", availableForOwner > 0 ? "text-emerald-600" : "text-rose-600")}>{formatCurrency(Math.max(0, availableForOwner))}</p>
+              </div>
+              <p className="sm:col-span-2 flex items-center gap-2 text-xs text-[#667085]">
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                {healthStatus.helper}
+              </p>
+            </div>
+
+            <div className="report-chart-wrap h-[250px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={capitalSeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="capitalFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#266dbe" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#266dbe" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="4 4" vertical={false} stroke={CHART_GRID_STROKE} />
+                  <XAxis dataKey="label" tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} tickMargin={8} />
+                  <YAxis tickFormatter={formatAxisNumber} tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} width={56} />
+                  <Tooltip
+                    cursor={{ stroke: "#c7d3e4", strokeDasharray: "4 4" }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                    wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+                    formatter={(value) => formatCurrency(asNumber(value))}
+                  />
+                  <Area type="monotone" dataKey="balance" stroke="#266dbe" strokeWidth={2.5} fill="url(#capitalFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </TableSectionCard>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <TableSectionCard
+          title="Penjualan Bulanan"
+          description="Filter kategori atau produk untuk analisis bulanan"
+          controls={
+            <div className="flex gap-2">
+              <Select value={categoryFilter} onValueChange={(value) => setCategoryFilter(value as CategoryFilter)}>
+                <SelectTrigger className="h-10 w-[170px] rounded-lg border-medium/40 bg-white">
+                  <SelectValue placeholder="Kategori" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Kategori</SelectItem>
+                  <SelectItem value="gas">Gas LPG</SelectItem>
+                  <SelectItem value="water">Air Galon</SelectItem>
+                  <SelectItem value="general">Umum</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={productFilter} onValueChange={setProductFilter}>
+                <SelectTrigger className="h-10 w-[190px] rounded-lg border-medium/40 bg-white">
+                  <SelectValue placeholder="Semua Produk" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Produk</SelectItem>
+                  {productOptions.map((product) => (
+                    <SelectItem key={product.id} value={product.id}>
+                      {product.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          }
+          isEmpty={salesSeries.length === 0}
+          emptyState={<TableEmptyState title="Belum ada penjualan" description="Tidak ada data penjualan untuk filter saat ini." icon={TrendingUp} />}
+        >
+          <div className="report-chart-wrap h-[320px] w-full p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={salesSeries} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="4 4" vertical={false} stroke={CHART_GRID_STROKE} />
+                <XAxis dataKey="label" tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} tickMargin={8} />
+                <YAxis tickFormatter={formatAxisNumber} tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} width={56} />
+                <Tooltip
+                  cursor={{ fill: "rgba(38,109,190,0.06)" }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                  labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                  wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+                  formatter={(value: number, name) =>
+                    name === "qty" ? [`${value} unit`, "Qty"] : [formatCurrency(value), "Sales"]
+                  }
+                />
+                <Bar dataKey="sales" name="sales" fill="#266dbe" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </TableSectionCard>
+
+        <TableSectionCard
+          title="Top Produk"
+          description="Produk paling laku dalam periode terpilih"
+          isEmpty={topProducts.length === 0}
+          emptyState={<TableEmptyState title="Belum ada produk terjual" description="Top produk muncul setelah ada penjualan." icon={TrendingUp} />}
+        >
+          <div className="report-chart-wrap h-[320px] w-full p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topProducts} layout="vertical" margin={{ top: 8, right: 12, left: 18, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="4 4" vertical={false} stroke={CHART_GRID_STROKE} />
+                <XAxis type="number" tickFormatter={formatAxisNumber} tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="shortName" width={110} tick={{ fontSize: 11, fill: "#667085" }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: "rgba(38,109,190,0.06)" }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                  labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                  wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+                  formatter={(value) => formatCurrency(asNumber(value))}
+                />
+                <Bar dataKey="sales" fill="#10b981" radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </TableSectionCard>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <TableSectionCard
+          title="Komposisi Pengeluaran"
+          description="Pengeluaran berdasarkan kategori"
+          isEmpty={expenseCategorySeries.length === 0}
+          emptyState={<TableEmptyState title="Belum ada pengeluaran" description="Tambah pengeluaran untuk melihat komposisinya." icon={Wallet} />}
+        >
+          <div className="grid gap-2 p-3 md:grid-cols-[1fr_220px]">
+            <div className="report-chart-wrap h-[280px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={expenseCategorySeries} dataKey="amount" nameKey="name" innerRadius={72} outerRadius={108} paddingAngle={2}>
+                    {expenseCategorySeries.map((entry, index) => (
+                      <Cell key={`${entry.name}-${index}`} fill={entry.color || CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                    wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+                    formatter={(value, name) => [formatCurrency(asNumber(value)), String(name ?? "Kategori")]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="report-pie-legend space-y-2">
+              {expenseCategorySeries.map((entry, index) => (
+                <div
+                  key={`${entry.name}-${index}`}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-[#e7edf6] bg-white px-2.5 py-2"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: entry.color || CHART_COLORS[index % CHART_COLORS.length] }} />
+                    <span className="truncate text-xs font-medium text-[#475467]">{entry.name}</span>
+                  </div>
+                  <span className="text-xs font-semibold text-[#101828]">{formatCurrency(entry.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </TableSectionCard>
+
+        <TableSectionCard
+          title="Tren Pengeluaran Bulanan"
+          description="Lihat kenaikan atau penurunan pengeluaran setiap bulan"
+          isEmpty={expenseTrendSeries.length === 0}
+          emptyState={<TableEmptyState title="Belum ada tren pengeluaran" description="Data tren akan muncul setelah ada pengeluaran." icon={Wallet} />}
+        >
+          <div className="report-chart-wrap h-[320px] w-full p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={expenseTrendSeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="expenseFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.28} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 4" vertical={false} stroke={CHART_GRID_STROKE} />
+                <XAxis dataKey="label" tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} tickMargin={8} />
+                <YAxis tickFormatter={formatAxisNumber} tick={CHART_TICK_STYLE} axisLine={false} tickLine={false} width={56} />
+                <Tooltip
+                  cursor={{ stroke: "#f0b2b2", strokeDasharray: "4 4" }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                  labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                  wrapperStyle={CHART_TOOLTIP_WRAPPER_STYLE}
+                  formatter={(value) => formatCurrency(asNumber(value))}
+                />
+                <Area dataKey="amount" stroke="#ef4444" strokeWidth={2.5} fill="url(#expenseFill)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </TableSectionCard>
+      </div>
+
+      <TableSectionCard
+        title="Daftar Transaksi"
+        description={`${filteredTransactions.length} transaksi ditemukan`}
+        controls={
+          <Select value={paymentFilter} onValueChange={(value) => setPaymentFilter(value as PaymentMethod | "all")}>
+            <SelectTrigger className="h-10 w-full rounded-lg border-medium/40 bg-white sm:w-[190px]">
+              <SelectValue placeholder="Semua Metode" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Semua Metode</SelectItem>
+              <SelectItem value="cash">Tunai</SelectItem>
+              <SelectItem value="qris">QRIS</SelectItem>
+              <SelectItem value="kasbon">Kasbon</SelectItem>
+            </SelectContent>
+          </Select>
+        }
+        isEmpty={filteredTransactions.length === 0}
+        emptyState={<TableEmptyState title="Belum ada transaksi" description="Coba ubah filter pencarian atau rentang tanggal." icon={Wallet} />}
+        footer={
+          <>
+            <span>Menampilkan {filteredTransactions.length} transaksi</span>
+            <span>{rangeLabel}</span>
+          </>
+        }
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Transaksi</TableHead>
+              <TableHead>Pelanggan</TableHead>
+              <TableHead>Metode</TableHead>
+              <TableHead>Item</TableHead>
+              <TableHead>Tanggal</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredTransactions.map((row) => {
+              const payment = (row.paymentMethod as PaymentMethod) || "cash"
+              return (
+                <TableRow key={row.id}>
+                  <TableCell>
+                    <p className="text-sm font-semibold text-primary">{row.id}</p>
+                    <p className="text-xs text-muted">{row.status}</p>
+                  </TableCell>
+                  <TableCell>
+                    <p className="text-sm font-medium text-primary">{row.customerName ?? "Walk-in"}</p>
+                  </TableCell>
+                  <TableCell>
+                    <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold", PAYMENT_BADGE_CLASS[payment])}>
+                      {PAYMENT_LABEL[payment]}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-sm font-medium text-primary">{row.itemCount}</TableCell>
+                  <TableCell className="text-sm text-secondary">{formatDateLabel(row.createdAt)}</TableCell>
+                  <TableCell className="text-right text-sm font-semibold text-primary">{formatCurrency(row.totalAmount)}</TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </TableSectionCard>
+    </div>
+  )
 }

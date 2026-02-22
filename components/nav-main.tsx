@@ -1,16 +1,18 @@
 "use client"
 
 import Link from "next/link"
-import { IconCirclePlusFilled, IconMail, type Icon } from "@tabler/icons-react"
+import { usePathname } from "next/navigation"
+import { type Icon } from "@tabler/icons-react"
 
-import { Button } from "@/components/ui/button"
 import {
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { cn } from "@/lib/utils"
 
 export function NavMain({
   items,
@@ -21,35 +23,28 @@ export function NavMain({
     icon?: Icon
   }[]
 }) {
+  const pathname = usePathname()
+
   return (
-    <SidebarGroup>
-      <SidebarGroupContent className="flex flex-col gap-2">
-        <SidebarMenu>
-          <SidebarMenuItem className="flex items-center gap-2">
-            <SidebarMenuButton
-              tooltip="Quick Create"
-              className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground min-w-8 duration-200 ease-linear"
-            >
-              <IconCirclePlusFilled />
-              <span className="sr-only sm:not-sr-only sm:text-xs">Quick Create</span>
-            </SidebarMenuButton>
-            <Button
-              size="icon"
-              className="size-8 group-data-[collapsible=icon]:opacity-0"
-              variant="outline"
-            >
-              <IconMail />
-              <span className="sr-only">Inbox</span>
-            </Button>
-          </SidebarMenuItem>
-        </SidebarMenu>
+    <SidebarGroup className="p-0">
+      <SidebarGroupLabel className="sr-only">Menu</SidebarGroupLabel>
+      <SidebarGroupContent className="flex flex-col items-center gap-4">
         <SidebarMenu>
           {items.map((item) => (
             <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton tooltip={item.title} asChild>
+              <SidebarMenuButton
+                tooltip={item.title}
+                asChild
+                className={cn(
+                  "size-10 justify-center rounded-lg p-0",
+                  pathname === item.url
+                    ? "bg-[#396fe4]/10 text-[#396fe4]"
+                    : "text-[#6b7280] hover:bg-[#f3f4f6] hover:text-[#396fe4]"
+                )}
+              >
                 <Link href={item.url}>
                   {item.icon && <item.icon />}
-                  <span className="text-sm text-foreground/90">{item.title}</span>
+                  <span className="sr-only">{item.title}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

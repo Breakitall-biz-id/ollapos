@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { product, inventory, priceRule, customer } from '../db/schema/pos';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 const pangkalanId = 'pangkalan-2kjqYYJAQ5I_q-6ti14Ta';
 
@@ -17,8 +17,7 @@ async function seedSampleData() {
       const existingInventory = await db
         .select()
         .from(inventory)
-        .where(eq(inventory.productId, product.id))
-        .where(eq(inventory.pangkalanId, pangkalanId));
+        .where(and(eq(inventory.productId, product.id), eq(inventory.pangkalanId, pangkalanId)));
 
       if (existingInventory.length === 0) {
         await db.insert(inventory).values({
@@ -29,7 +28,7 @@ async function seedSampleData() {
           stockEmpty: Math.floor(Math.random() * 20) + 5, // 5-25 units
           createdAt: new Date(),
           updatedAt: new Date()
-        });
+        } as any);
         console.log(`✅ Added inventory for ${product.name}`);
       } else {
         console.log(`📦 Inventory already exists for ${product.name}`);
@@ -39,8 +38,7 @@ async function seedSampleData() {
       const existingPriceRule = await db
         .select()
         .from(priceRule)
-        .where(eq(priceRule.productId, product.id))
-        .where(eq(priceRule.pangkalanId, pangkalanId));
+        .where(and(eq(priceRule.productId, product.id), eq(priceRule.pangkalanId, pangkalanId)));
 
       if (existingPriceRule.length === 0) {
         let priceRegular = 0;
@@ -74,7 +72,7 @@ async function seedSampleData() {
           priceVip,
           createdAt: new Date(),
           updatedAt: new Date()
-        });
+        } as any);
         console.log(`💰 Added pricing for ${product.name}: Rp${priceRegular.toLocaleString('id-ID')} (VIP: Rp${priceVip.toLocaleString('id-ID')})`);
       } else {
         console.log(`💵 Pricing already exists for ${product.name}`);
@@ -94,8 +92,7 @@ async function seedSampleData() {
       const existingCustomer = await db
         .select()
         .from(customer)
-        .where(eq(customer.pangkalanId, pangkalanId))
-        .where(eq(customer.name, customerData.name));
+        .where(and(eq(customer.pangkalanId, pangkalanId), eq(customer.name, customerData.name)));
 
       if (existingCustomer.length === 0) {
         await db.insert(customer).values({
@@ -106,7 +103,7 @@ async function seedSampleData() {
           isVip: customerData.isVip,
           createdAt: new Date(),
           updatedAt: new Date()
-        });
+        } as any);
         console.log(`👤 Added customer: ${customerData.name} ${customerData.isVip ? '(VIP)' : '(Regular)'}`);
       } else {
         console.log(`👥 Customer ${customerData.name} already exists`);

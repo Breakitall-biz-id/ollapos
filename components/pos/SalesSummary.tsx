@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ChevronRight,
   DollarSign,
@@ -13,7 +13,8 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { InlineLoadingState } from "@/components/inline-loading-state"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency } from "@/lib/utils"
@@ -32,10 +33,10 @@ interface DailyTransaction {
 }
 
 const paymentBadgeMeta: Record<string, { label: string; className: string }> = {
-  cash: { label: "Cash", className: "border-transparent bg-emerald-50 text-emerald-600" },
-  qris: { label: "QRIS", className: "border-transparent bg-sky-50 text-sky-600" },
-  kasbon: { label: "Kasbon", className: "border-transparent bg-amber-50 text-amber-600" },
-  default: { label: "Pembayaran", className: "border-transparent bg-slate-50 text-slate-600" },
+  cash: { label: "Cash", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  qris: { label: "QRIS", className: "border-sky-200 bg-sky-50 text-sky-700" },
+  kasbon: { label: "Kasbon", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  default: { label: "Pembayaran", className: "border-medium/40 bg-slate-50 text-slate-700" },
 }
 
 interface SalesSummaryProps {
@@ -57,7 +58,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
   const [loading, setLoading] = useState(true)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const [summaryResult, transactionsResult, expenseResult] = await Promise.all([
@@ -84,13 +85,15 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [salesData.date])
 
   useEffect(() => {
     void loadData()
-    const interval = setInterval(loadData, 30000)
+    const interval = setInterval(() => {
+      void loadData()
+    }, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [loadData])
 
   const formattedDate = useMemo(
     () =>
@@ -140,7 +143,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
   const renderTransactionList = () => {
     if (transactions.length === 0) {
       return (
-        <div className="rounded-2xl border border-dashed border-medium/60 bg-surface-tertiary px-6 py-8 text-center">
+        <div className="rounded-lg border border-dashed border-medium/60 bg-surface-secondary px-6 py-8 text-center">
           <Receipt className="mx-auto mb-3 size-10 text-muted" aria-hidden />
           <p className="text-sm font-medium text-secondary">Belum ada transaksi hari ini</p>
           <p className="text-xs text-muted">Transaksi akan muncul setelah pembayaran berhasil</p>
@@ -160,7 +163,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
           return (
             <div
               key={transaction.id}
-              className="w-full overflow-hidden rounded-2xl border border-medium/60 bg-white px-4 py-4 shadow-[0_16px_40px_-30px_rgba(15,23,42,0.55)] transition-all hover:border-primary/40"
+              className="w-full overflow-hidden rounded-lg border border-medium/60 bg-white px-4 py-4 shadow-sm transition-all hover:border-primary/40"
             >
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
                 <div className="min-w-0 space-y-2">
@@ -201,7 +204,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-secondary">Ringkasan</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Ringkasan</p>
             <p className="text-sm text-secondary">{formattedDate}</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -218,7 +221,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
             <Button
               variant="outline"
               size="sm"
-              className="gap-2 rounded-full border-medium/40"
+              className="gap-2 rounded-md border-medium/40"
               onClick={() => setIsDetailOpen(true)}
             >
               Detail transaksi
@@ -228,11 +231,11 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {[0, 1, 2].map((index) => (
-              <div key={index} className="h-24 rounded-2xl border border-dashed border-medium/30 bg-white/70" />
-            ))}
-          </div>
+          <InlineLoadingState
+            title="Memuat ringkasan penjualan"
+            description="Data transaksi sedang disiapkan."
+            className="sm:max-w-xl"
+          />
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {metrics.map((metric) => {
@@ -240,9 +243,9 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
               return (
                 <div
                   key={metric.id}
-                  className="flex h-full flex-col gap-3 rounded-2xl border border-white/60 bg-white/90 p-4 shadow-[0_24px_60px_-48px_rgba(15,23,42,0.85)]"
+                  className="flex h-full flex-col gap-3 rounded-lg border border-medium/40 bg-white p-4 shadow-sm"
                 >
-                  <span className={`flex size-10 items-center justify-center rounded-full ${metric.iconClassName}`} aria-hidden>
+                  <span className={`flex size-10 items-center justify-center rounded-md ${metric.iconClassName}`} aria-hidden>
                     <Icon className="size-4" />
                   </span>
                   <div className="space-y-1">
@@ -257,18 +260,31 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
 
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>Detail transaksi hari ini</DialogTitle>
-              <p className="text-sm text-secondary">Daftar transaksi yang tercatat otomatis</p>
+            <DialogHeader className="space-y-2">
+              <DialogTitle className="text-3xl font-semibold text-primary">Detail transaksi hari ini</DialogTitle>
+              <p className="text-sm text-secondary leading-relaxed">Daftar transaksi yang tercatat otomatis</p>
             </DialogHeader>
-            {loading ? (
-              <div className="rounded-2xl border border-dashed border-medium/60 bg-surface-tertiary px-6 py-8 text-center">
-                <RefreshCw className="mx-auto mb-3 size-8 animate-spin text-primary" aria-hidden />
-                <p className="text-sm text-secondary">Memuat detail transaksi…</p>
-              </div>
-            ) : (
-              renderTransactionList()
-            )}
+            <div className="py-4">
+              {loading ? (
+                <InlineLoadingState
+                  title="Memuat detail transaksi"
+                  description="Mohon tunggu sesaat…"
+                  className="border-dashed bg-surface-secondary"
+                />
+              ) : (
+                renderTransactionList()
+              )}
+            </div>
+            <Separator />
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                className="w-full sm:w-auto h-12 rounded-lg px-6 text-base font-medium text-secondary hover:text-primary touch-target-large"
+                onClick={() => setIsDetailOpen(false)}
+              >
+                Tutup
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
@@ -284,15 +300,18 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
             Ringkasan Penjualan
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center justify-center py-10">
-          <RefreshCw className="size-6 animate-spin text-primary" aria-hidden />
+        <CardContent className="py-4">
+          <InlineLoadingState
+            title="Memuat ringkasan penjualan"
+            description="Menghitung penjualan hari ini."
+          />
         </CardContent>
       </Card>
     )
   }
 
   return (
-    <Card className="overflow-hidden rounded-[24px] border border-medium/60 bg-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)]">
+    <Card className="overflow-hidden rounded-xl border border-medium/60 bg-white shadow-sm">
       <CardHeader className="space-y-4 pb-5">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-2">
@@ -306,7 +325,7 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
             variant="outline"
             size="icon"
             onClick={loadData}
-            className="size-9 rounded-xl border-medium/40 bg-white text-secondary shadow-sm transition-all hover:border-primary/40 hover:text-primary"
+            className="size-9 rounded-md border-medium/40 bg-white text-secondary transition-all hover:border-primary/40 hover:text-primary"
             aria-label="Muat ulang ringkasan penjualan"
           >
             <RefreshCw className="size-4" aria-hidden />
@@ -314,15 +333,15 @@ export function SalesSummary({ inline = false }: SalesSummaryProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {metrics.map((metric) => {
             const Icon = metric.icon
             return (
               <div
                 key={metric.id}
-                className="flex h-full flex-col gap-3 rounded-2xl border border-medium/60 bg-white p-5 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.65)] transition-colors hover:border-primary/40"
+                className="flex h-full flex-col gap-3 rounded-lg border border-medium/60 bg-white p-5 shadow-sm transition-colors hover:border-primary/40"
               >
-                <span className={`flex size-10 items-center justify-center rounded-full ${metric.iconClassName}`} aria-hidden>
+                <span className={`flex size-10 items-center justify-center rounded-md ${metric.iconClassName}`} aria-hidden>
                   <Icon className="size-4" />
                 </span>
                 <div className="space-y-1 text-balance">

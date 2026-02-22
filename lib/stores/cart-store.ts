@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { generateId } from '@/lib/utils';
+import { resolveDiscountClient, type ProductTierPricingItem } from '@/lib/discount-utils';
 
 export interface CartItem {
   id: string;
@@ -22,6 +23,7 @@ export interface CartState {
   customerTypeId?: string;
   customerTypeName?: string;
   customerDiscountPercent: number;
+  productTierPricings: ProductTierPricingItem[];
   total: number;
   itemCount: number;
 
@@ -37,12 +39,32 @@ export interface CartState {
   removeItem: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number, stock?: number) => boolean;
   setCustomer: (customerId?: string, customerName?: string, customerTypeId?: string, customerTypeName?: string, customerDiscountPercent?: number) => void;
+  setProductTierPricings: (pricings: ProductTierPricingItem[]) => void;
   clearCart: () => void;
   getTotalItems: () => number;
   getTotalAmount: () => number;
   recalculateTotals: () => void;
   getDiscountedTotal: () => number;
   validateStock: (productId: string, requestedQuantity: number, availableStock: number) => boolean;
+}
+
+function calculateItemPrice(
+  productId: string,
+  basePrice: number,
+  category: string,
+  customerTypeId: string | undefined,
+  customerDiscountPercent: number,
+  productTierPricings: ProductTierPricingItem[]
+): number {
+  const resolved = resolveDiscountClient(
+    productId,
+    customerTypeId,
+    basePrice,
+    category,
+    productTierPricings,
+    customerDiscountPercent
+  );
+  return resolved.finalPrice;
 }
 
 export const useCartStore = create<CartState>()(
@@ -54,6 +76,7 @@ export const useCartStore = create<CartState>()(
       customerTypeId: undefined,
       customerTypeName: undefined,
       customerDiscountPercent: 0,
+      productTierPricings: [],
       total: 0,
       itemCount: 0,
 
@@ -72,9 +95,14 @@ export const useCartStore = create<CartState>()(
 
         set((prevState) => {
           const existingItem = prevState.items.find(item => item.productId === product.id);
-          const discountedPrice = product.category === 'gas'
-            ? product.basePrice
-            : Math.round(product.basePrice * (1 - prevState.customerDiscountPercent / 100));
+          const discountedPrice = calculateItemPrice(
+            product.id,
+            product.basePrice,
+            product.category,
+            prevState.customerTypeId,
+            prevState.customerDiscountPercent,
+            prevState.productTierPricings
+          );
 
           if (existingItem) {
             // If item exists, increment quantity
@@ -180,9 +208,14 @@ export const useCartStore = create<CartState>()(
 
           // Recalculate all item prices with new discount
           const updatedItems = state.items.map(item => {
-            const newDiscountedPrice = item.category === 'gas'
-              ? item.basePrice
-              : Math.round(item.basePrice * (1 - customerDiscountPercent / 100));
+            const newDiscountedPrice = calculateItemPrice(
+              item.productId,
+              item.basePrice,
+              item.category,
+              customerTypeId,
+              customerDiscountPercent,
+              state.productTierPricings
+            );
             return {
               ...item,
               discountedPrice: newDiscountedPrice,
@@ -194,6 +227,35 @@ export const useCartStore = create<CartState>()(
 
           return {
             ...newState,
+            items: updatedItems,
+            total
+          };
+        });
+      },
+
+      setProductTierPricings: (pricings) => {
+        set((state) => {
+          // Recalculate all item prices with new pricing data
+          const updatedItems = state.items.map(item => {
+            const newDiscountedPrice = calculateItemPrice(
+              item.productId,
+              item.basePrice,
+              item.category,
+              state.customerTypeId,
+              state.customerDiscountPercent,
+              pricings
+            );
+            return {
+              ...item,
+              discountedPrice: newDiscountedPrice,
+              subtotal: newDiscountedPrice * item.quantity
+            };
+          });
+
+          const total = updatedItems.reduce((sum, item) => sum + item.subtotal, 0);
+
+          return {
+            productTierPricings: pricings,
             items: updatedItems,
             total
           };

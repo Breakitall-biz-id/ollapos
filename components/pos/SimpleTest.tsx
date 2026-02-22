@@ -12,7 +12,7 @@ export function SimpleTest() {
         const data = await response.json();
         setMessage(`Session: ${data.user?.name || 'No user'} (${data.user?.id || 'No ID'})`);
       } catch (error) {
-        setMessage(`Error: ${error.message}`);
+        setMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
 

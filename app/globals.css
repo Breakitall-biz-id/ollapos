@@ -346,3 +346,39 @@
     @apply bg-gray-100 border-2 border-gray-300 rounded-lg p-6 text-center font-mono text-4xl font-bold;
   }
 }
+
+/* Classic Kasir mode: flatter, calmer, and easier to scan for non-technical operators */
+.classic-kasir [class*="shadow"] {
+  box-shadow: none !important;
+}
+
+.classic-kasir [class*="rounded-"] {
+  border-radius: 0.5rem !important;
+}
+
+.classic-kasir .border-white\/60,
+.classic-kasir .border-white\/50 {
+  border-color: #d1d5db !important;
+}
+
+.classic-kasir .bg-gradient-to-br {
+  background-image: none !important;
+  background-color: #ffffff !important;
+}
+
+.classic-kasir .tracking-\[0\.28em\],
+.classic-kasir .tracking-\[0\.24em\],
+.classic-kasir .tracking-\[0\.2em\],
+.classic-kasir .tracking-\[0\.3em\] {
+  letter-spacing: 0.08em !important;
+}
+
+.classic-kasir .text-3xl {
+  font-size: 1.6rem !important;
+  line-height: 2rem !important;
+}
+
+.classic-kasir .text-4xl {
+  font-size: 1.8rem !important;
+  line-height: 2.2rem !important;
+}

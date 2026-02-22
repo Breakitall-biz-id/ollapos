@@ -3,23 +3,14 @@
 import { nanoid } from "nanoid"
 
 import { db } from "@/db"
-import { inventory, inventoryLog, pangkalan, product, type Inventory as InventoryRecord, type Pangkalan } from "@/db"
+import { capitalEntry, inventory, inventoryLog, priceRule, product, type Inventory as InventoryRecord, type Pangkalan } from "@/db"
 import { and, eq } from "drizzle-orm"
-
-const HARDCODED_PANGKALAN_ID = "pangkalan-2kjqYYJAQ5I_q-6ti14Ta"
+import { resolvePangkalanContext } from "@/lib/server/pangkalan-context"
+import { ensureSufficientCapitalBalance } from "@/lib/actions/capital"
 
 async function getActivePangkalan(): Promise<Pangkalan> {
-	const pangkalanRecord = await db
-		.select()
-		.from(pangkalan)
-		.where(eq(pangkalan.id, HARDCODED_PANGKALAN_ID))
-		.limit(1)
-
-	if (pangkalanRecord.length === 0) {
-		throw new Error(`Pangkalan not found with ID: ${HARDCODED_PANGKALAN_ID}`)
-	}
-
-	return pangkalanRecord[0]
+	const { pangkalan } = await resolvePangkalanContext()
+	return pangkalan
 }
 
 type RestockPayload = {
@@ -36,6 +27,7 @@ type RestockResponse = {
 		stockEmpty: number
 		isReturnable: boolean
 		warning?: string
+		warningCapital?: string
 	}
 	error?: string
 }
@@ -82,6 +74,28 @@ export async function restockProductForCurrentPangkalan(payload: RestockPayload)
 		}
 
 		const now = new Date()
+		const pricingRecord = await db
+			.select({
+				basePrice: priceRule.basePrice,
+				costPrice: priceRule.costPrice,
+			})
+			.from(priceRule)
+			.where(
+				and(
+					eq(priceRule.productId, payload.productId),
+					eq(priceRule.pangkalanId, currentPangkalan.id)
+				)
+			)
+			.limit(1)
+
+		const costPrice = Number(pricingRecord[0]?.costPrice ?? 0)
+		const basePrice = Number(pricingRecord[0]?.basePrice ?? 0)
+		const unitCapitalCost = costPrice > 0 ? costPrice : Math.max(0, basePrice)
+		const totalCapitalOut = Number((unitCapitalCost * quantity).toFixed(2))
+
+		if (totalCapitalOut > 0) {
+			await ensureSufficientCapitalBalance(currentPangkalan.id, totalCapitalOut)
+		}
 
 		const result = await db.transaction(async (tx) => {
 			const inventoryRows = await tx
@@ -140,11 +154,23 @@ export async function restockProductForCurrentPangkalan(payload: RestockPayload)
 				createdAt: now,
 			})
 
+			if (totalCapitalOut > 0) {
+				await tx.insert(capitalEntry).values({
+					id: nanoid(),
+					pangkalanId: currentPangkalan.id,
+					type: "out",
+					amount: totalCapitalOut.toFixed(2),
+					note: `AUTO:RESTOCK:${targetProduct.name} x${quantity}`,
+					createdAt: now,
+				})
+			}
+
 			return {
 				stockFilled: newFilled,
 				stockEmpty: newEmpty,
 				isReturnable,
 				warning,
+				totalCapitalOut,
 			}
 		})
 
@@ -156,6 +182,10 @@ export async function restockProductForCurrentPangkalan(payload: RestockPayload)
 				stockEmpty: result.stockEmpty,
 				isReturnable: result.isReturnable,
 				warning: result.warning,
+				warningCapital:
+					totalCapitalOut === 0
+						? "Biaya modal restock belum tercatat karena harga modal produk masih 0."
+						: undefined,
 			},
 		}
 	} catch (error) {
@@ -166,5 +196,3 @@ export async function restockProductForCurrentPangkalan(payload: RestockPayload)
 		}
 	}
 }
-
-

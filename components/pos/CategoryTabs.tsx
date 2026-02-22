@@ -1,68 +1,49 @@
 "use client"
 
-import { type LucideIcon } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 export interface CategoryOption {
-  id: "gas" | "water" | "general"
+  id: string
   label: string
-  icon: LucideIcon
 }
 
 interface CategoryTabsProps {
   categories: CategoryOption[]
-  activeCategory: CategoryOption["id"]
-  onCategoryChange: (category: CategoryOption["id"]) => void
-  counts?: Record<CategoryOption["id"], number>
+  activeCategory: string
+  onCategoryChange: (category: string) => void
+  counts?: Record<string, number>
 }
 
 export function CategoryTabs({ categories, activeCategory, onCategoryChange, counts }: CategoryTabsProps) {
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="flex gap-3 overflow-x-auto pb-1 pr-1">
       {categories.map((category) => {
-        const Icon = category.icon
         const isActive = activeCategory === category.id
-        const count = counts?.[category.id]
 
         return (
-          <Button
+          <button
             key={category.id}
             type="button"
-            variant={isActive ? "default" : "outline"}
             className={cn(
-              "flex h-auto flex-col gap-2 rounded-2xl border-2 px-4 py-3 text-left transition-all",
+              "shrink-0 whitespace-nowrap rounded-full border px-5 py-2 text-sm font-medium transition-all",
               isActive
-                ? "border-primary bg-primary text-primary-foreground shadow-lg"
-                : "border-transparent bg-white text-secondary hover:border-primary/40 hover:text-primary"
+                ? "border-[#396fe4] bg-[#396fe4] text-white shadow-sm shadow-[#396fe4]/20"
+                : "border-[#e5e7eb] bg-white text-[#6b7280] hover:border-[#396fe4]/50 hover:text-[#396fe4]"
             )}
             onClick={() => onCategoryChange(category.id)}
           >
-            <div className="flex w-full items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span
-                  className={cn(
-                    "flex size-10 items-center justify-center rounded-xl",
-                    isActive ? "bg-white/20 text-white" : "bg-surface-tertiary text-secondary"
-                  )}
-                >
-                  <Icon className="size-4" aria-hidden />
-                </span>
-                <span className="text-base font-semibold">{category.label}</span>
-              </div>
-              {typeof count === "number" && (
-                <span
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-semibold",
-                    isActive ? "bg-white/20 text-white" : "bg-surface-tertiary text-secondary"
-                  )}
-                >
-                  {count}
-                </span>
-              )}
-            </div>
-          </Button>
+            {category.label}
+            {typeof counts?.[category.id] === "number" && (
+              <span
+                className={cn(
+                  "ml-2 rounded-full px-2 py-0.5 text-[11px]",
+                  isActive ? "bg-white/20 text-white" : "bg-[#f3f4f6] text-[#6b7280]"
+                )}
+              >
+                {counts[category.id]}
+              </span>
+            )}
+          </button>
         )
       })}
     </div>

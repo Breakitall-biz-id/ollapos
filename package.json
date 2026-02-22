@@ -17,6 +17,7 @@
     "db:dev": "docker compose --profile dev up postgres-dev -d",
     "db:dev-down": "docker compose --profile dev down postgres-dev",
     "db:reset": "drizzle-kit drop && drizzle-kit push",
+    "user:create-admin": "tsx scripts/create-admin.ts",
     "docker:build": "docker build -t codeguide-starter-fullstack .",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

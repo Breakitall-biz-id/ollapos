@@ -99,15 +99,15 @@ export function ReceiptModal({ isOpen, onClose, transactionData }: ReceiptModalP
 
             <div class="items">
               ${transactionData.items
-                .map(
-                  (item) => `
+          .map(
+            (item) => `
                 <div class="item">
                   <span>${item.name} x${item.quantity}</span>
                   <span>${formatCurrency(item.subtotal)}</span>
                 </div>
               `
-                )
-                .join("")}
+          )
+          .join("")}
 
               <div class="total">
                 <div><strong>Total:</strong> ${formatCurrency(transactionData.total)}</div>
@@ -153,11 +153,11 @@ ${transactionData.customerName ? `Pelanggan: ${transactionData.customerName}` : 
 RINCIAN PEMBELIAN (${totalItems} ITEM):
 ------------------------------------------
 ${transactionData.items
-  .map(
-    (item) =>
-      `${item.name.padEnd(25)} ${item.quantity}x ${formatCurrency(item.price).padStart(12)}`
-  )
-  .join("\n")}
+        .map(
+          (item) =>
+            `${item.name.padEnd(25)} ${item.quantity}x ${formatCurrency(item.price).padStart(12)}`
+        )
+        .join("\n")}
 
 ------------------------------------------
 TOTAL: ${formatCurrency(transactionData.total).padStart(45)}
@@ -192,96 +192,105 @@ Barang yang sudah dibeli tidak dapat dikembalikan
         }
       }}
     >
-      <DialogContent className="max-w-lg space-y-6">
+      <DialogContent className="max-w-lg">
         <DialogHeader className="space-y-2">
           <div className="flex items-center gap-2 text-primary">
-            <FileText className="size-5" aria-hidden />
-            <DialogTitle className="text-2xl font-semibold">Struk Pembayaran</DialogTitle>
+            <FileText className="size-6" aria-hidden />
+            <DialogTitle className="text-3xl font-semibold">Struk Pembayaran</DialogTitle>
           </div>
-          <p className="text-sm text-secondary">Ollapos • Pangkalan Bude Sri</p>
+          <p className="text-sm text-secondary leading-relaxed">Ollapos • Pangkalan Bude Sri</p>
         </DialogHeader>
 
-        <div className="rounded-2xl border border-medium/70 bg-surface p-4 text-sm text-secondary shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-secondary">No. Transaksi</p>
-              <p className="font-mono text-lg text-primary">{transactionData.id}</p>
-            </div>
-            <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-semibold">
-              {totalItems} item
-            </Badge>
-          </div>
-          <div className="mt-4 grid gap-3 text-base text-primary sm:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-secondary">Waktu</p>
-              <p className="font-semibold">{formattedDateTime}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-secondary">Pelanggan</p>
-              <p className="font-semibold">{transactionData.customerName ?? "Tamu Umum"}</p>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-secondary">
-            Rincian Pembelian
-          </h3>
-          <ScrollArea className="mt-3 max-h-60 rounded-2xl border border-medium/60 bg-surface">
-            <div className="space-y-4 p-4 text-base">
-              {transactionData.items.map((item, index) => (
-                <div key={`${item.name}-${index}`} className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-primary">{item.name}</p>
-                    <p className="text-secondary">{item.quantity} × {formatCurrency(item.price)}</p>
-                  </div>
-                  <p className="text-right text-lg font-bold text-primary">
-                    {formatCurrency(item.subtotal)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-medium/70 bg-surface p-4 text-base text-secondary shadow-sm">
-            <div className="flex items-center justify-between">
-              <span>Metode Pembayaran</span>
-              <Badge variant="outline" className="rounded-full px-3 py-1 text-sm font-semibold uppercase text-primary">
-                {PAYMENT_LABELS[transactionData.paymentMethod]}
+        <div className="space-y-6 py-4">
+          <div className="rounded-2xl border border-medium/70 bg-surface p-4 text-sm text-secondary shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-secondary">No. Transaksi</p>
+                <p className="font-mono text-lg text-primary">{transactionData.id}</p>
+              </div>
+              <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-semibold">
+                {totalItems} item
               </Badge>
             </div>
-            {transactionData.cashReceived !== undefined && (
-              <div className="mt-3 flex items-center justify-between text-primary">
-                <span>Uang Diterima</span>
-                <span className="text-lg font-semibold">
-                  {formatCurrency(transactionData.cashReceived)}
-                </span>
+            <div className="mt-4 grid gap-3 text-base text-primary sm:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-secondary">Waktu</p>
+                <p className="font-semibold">{formattedDateTime}</p>
               </div>
-            )}
-            {transactionData.changeAmount !== undefined && (
-              <div className="mt-3 rounded-2xl bg-success-subtle px-4 py-3 text-center text-success">
-                <p className="text-sm font-semibold uppercase tracking-wide">Kembalian</p>
-                <p className="text-2xl font-bold">{formatCurrency(transactionData.changeAmount)}</p>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-secondary">Pelanggan</p>
+                <p className="font-semibold">{transactionData.customerName ?? "Tamu Umum"}</p>
               </div>
-            )}
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-primary/40 bg-primary/5 px-4 py-5 text-primary">
-            <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Total Pembayaran</p>
-            <p className="text-3xl font-bold">{formatCurrency(transactionData.total)}</p>
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-secondary">
+              Rincian Pembelian
+            </h3>
+            <ScrollArea className="mt-3 max-h-60 rounded-2xl border border-medium/60 bg-surface">
+              <div className="space-y-4 p-4 text-base">
+                {transactionData.items.map((item, index) => (
+                  <div key={`${item.name}-${index}`} className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-semibold text-primary">{item.name}</p>
+                      <p className="text-secondary">{item.quantity} × {formatCurrency(item.price)}</p>
+                    </div>
+                    <p className="text-right text-lg font-bold text-primary">
+                      {formatCurrency(item.subtotal)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-medium/70 bg-surface p-4 text-base text-secondary shadow-sm">
+              <div className="flex items-center justify-between">
+                <span>Metode Pembayaran</span>
+                <Badge variant="outline" className="rounded-full px-3 py-1 text-sm font-semibold uppercase text-primary">
+                  {PAYMENT_LABELS[transactionData.paymentMethod]}
+                </Badge>
+              </div>
+              {transactionData.cashReceived !== undefined && (
+                <div className="mt-3 flex items-center justify-between text-primary">
+                  <span>Uang Diterima</span>
+                  <span className="text-lg font-semibold">
+                    {formatCurrency(transactionData.cashReceived)}
+                  </span>
+                </div>
+              )}
+              {transactionData.changeAmount !== undefined && (
+                <div className="mt-3 rounded-2xl bg-success-subtle px-4 py-3 text-center text-success">
+                  <p className="text-sm font-semibold uppercase tracking-wide">Kembalian</p>
+                  <p className="text-2xl font-bold">{formatCurrency(transactionData.changeAmount)}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-primary/40 bg-primary/5 px-4 py-5 text-primary">
+              <p className="text-xs font-semibold uppercase tracking-wide text-secondary">Total Pembayaran</p>
+              <p className="text-3xl font-bold">{formatCurrency(transactionData.total)}</p>
+            </div>
           </div>
         </div>
 
-        <DialogFooter className="!flex-col !items-stretch !gap-4">
+        <Separator />
+
+        <DialogFooter className="!flex-col !items-stretch gap-3">
           <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
-            <Button variant="outline" className="w-full touch-target-large text-base font-semibold" onClick={handleDownload}>
+            <Button
+              variant="outline"
+              className="h-12 rounded-lg px-6 text-base font-medium touch-target-large"
+              onClick={handleDownload}
+            >
               <Download className="mr-2 size-4" aria-hidden />
               Download TXT
             </Button>
             <Button
-              className="w-full touch-target-large text-base font-semibold bg-primary text-primary-foreground hover:bg-primary/90"
+              variant="brand"
+              className="h-12 rounded-lg px-6 text-base font-medium touch-target-large"
               onClick={handlePrint}
               disabled={isPrinting}
             >
@@ -289,7 +298,11 @@ Barang yang sudah dibeli tidak dapat dikembalikan
               {isPrinting ? "Mencetak..." : "Cetak"}
             </Button>
           </div>
-          <Button variant="ghost" className="w-full touch-target-large text-base" onClick={onClose}>
+          <Button
+            variant="ghost"
+            className="h-12 rounded-lg px-6 text-base font-medium text-secondary hover:text-primary touch-target-large"
+            onClick={onClose}
+          >
             Tutup
           </Button>
         </DialogFooter>

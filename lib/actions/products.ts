@@ -3,10 +3,9 @@
 import { nanoid } from 'nanoid';
 
 import { db } from '@/db';
-import { product, inventory, priceRule, pangkalan, customer, type Pangkalan } from '@/db';
-import { eq, and, ilike } from 'drizzle-orm';
-import { auth } from '@/lib/auth';
-import { cookies } from 'next/headers';
+import { product, inventory, priceRule, customer, type Pangkalan } from '@/db';
+import { eq, and, ilike, or } from 'drizzle-orm';
+import { resolvePangkalanContext } from '@/lib/server/pangkalan-context';
 
 type ProductCategory = 'gas' | 'water' | 'general';
 
@@ -24,22 +23,6 @@ export type ProductListItem = {
   unit: string;
   description: string;
 };
-
-// Helper function to get current session
-async function getCurrentSession() {
-  try {
-    const cookieStore = await cookies();
-    const session = await auth.api.getSession({
-      headers: {
-        cookie: cookieStore.toString()
-      }
-    });
-    return session;
-  } catch (error) {
-    console.error('Session error:', error);
-    return null;
-  }
-}
 
 export async function getProductsForCurrentPangkalan(category?: string): Promise<{
   success: boolean;
@@ -79,18 +62,17 @@ export async function getProductsForCurrentPangkalan(category?: string): Promise
           eq(priceRule.pangkalanId, currentPangkalan.id)
         )
       )
-      .where(
+      .where(and(
+        or(
+          eq(product.isGlobal, true),
+          eq(product.pangkalanId, currentPangkalan.id)
+        ),
         category ? eq(product.category, category) : undefined
-      );
+      ));
 
     const products = await productsQuery;
 
-    // Filter products that are either global or explicitly owned by this pangkalan
-    const filteredProducts = products.filter((record) =>
-      record.isGlobal || record.pangkalanId === currentPangkalan.id
-    );
-
-    const mapped: ProductListItem[] = filteredProducts.map((record) => ({
+    const mapped: ProductListItem[] = products.map((record) => ({
       id: record.id,
       name: record.name,
       category: record.category as ProductCategory,
@@ -135,20 +117,9 @@ type UpsertProductInput = {
   unit?: string | null;
 };
 
-const HARDCODED_PANGKALAN_ID = 'pangkalan-2kjqYYJAQ5I_q-6ti14Ta';
-
 async function getActivePangkalan(): Promise<Pangkalan> {
-  const pangkalanRecord = await db
-    .select()
-    .from(pangkalan)
-    .where(eq(pangkalan.id, HARDCODED_PANGKALAN_ID))
-    .limit(1);
-
-  if (pangkalanRecord.length === 0) {
-    throw new Error(`Pangkalan not found with ID: ${HARDCODED_PANGKALAN_ID}`);
-  }
-
-  return pangkalanRecord[0];
+  const { pangkalan } = await resolvePangkalanContext();
+  return pangkalan;
 }
 
 function normalizePrice(value: number) {
@@ -409,31 +380,13 @@ export async function deleteProductForCurrentPangkalan(productId: string): Promi
 
 export async function getProductPriceForCustomer(productId: string, customerId?: string) {
   try {
-    // Get current user session
-    const session = await getCurrentSession();
-
-    if (!session?.user?.id) {
-      return { success: false, error: 'Unauthorized', data: null };
-    }
-
-    // Find pangkalan for current user
-    const pangkalanRecord = await db
-      .select()
-      .from(pangkalan)
-      .where(eq(pangkalan.userId, session.user.id))
-      .limit(1);
-
-    if (pangkalanRecord.length === 0) {
-      throw new Error('Pangkalan not found');
-    }
-
-    const currentPangkalan = pangkalanRecord[0];
+    const currentPangkalan = await getActivePangkalan();
 
     // Get price rule
-    const priceRuleRecord = await db
+    const priceRuleRows = await db
       .select({
-        priceRegular: priceRule.priceRegular,
-        priceVip: priceRule.priceVip,
+        basePrice: priceRule.basePrice,
+        costPrice: priceRule.costPrice,
       })
       .from(priceRule)
       .where(
@@ -444,15 +397,15 @@ export async function getProductPriceForCustomer(productId: string, customerId?:
       )
       .limit(1);
 
-    if (priceRuleRecord.length === 0) {
+    if (priceRuleRows.length === 0) {
       throw new Error('Price rule not found');
     }
 
-    // If customer is provided, check if they're VIP
-    let isVip = false;
+    // If customer is provided, check their type
+    let customerTypeId: string | null = null;
     if (customerId) {
       const customerRecord = await db
-        .select({ isVip: customer.isVip })
+        .select({ typeId: customer.typeId })
         .from(customer)
         .where(
           and(
@@ -463,20 +416,20 @@ export async function getProductPriceForCustomer(productId: string, customerId?:
         .limit(1);
 
       if (customerRecord.length > 0) {
-        isVip = customerRecord[0].isVip;
+        customerTypeId = customerRecord[0].typeId;
       }
     }
 
-    const priceRule = priceRuleRecord[0];
-    const price = isVip ? priceRule.priceVip : priceRule.priceRegular;
+    const rule = priceRuleRows[0];
+    const basePrice = Number(rule.basePrice);
 
     return {
       success: true,
       data: {
-        price: Number(price),
-        isVip,
-        priceRegular: Number(priceRule.priceRegular),
-        priceVip: Number(priceRule.priceVip),
+        price: basePrice,
+        customerTypeId,
+        basePrice,
+        costPrice: Number(rule.costPrice),
       }
     };
 
@@ -492,25 +445,7 @@ export async function getProductPriceForCustomer(productId: string, customerId?:
 
 export async function searchProducts(query: string) {
   try {
-    // Get current user session
-    const session = await getCurrentSession();
-
-    if (!session?.user?.id) {
-      return { success: false, error: 'Unauthorized', data: [] };
-    }
-
-    // Find pangkalan for current user
-    const pangkalanRecord = await db
-      .select()
-      .from(pangkalan)
-      .where(eq(pangkalan.userId, session.user.id))
-      .limit(1);
-
-    if (pangkalanRecord.length === 0) {
-      throw new Error('Pangkalan not found');
-    }
-
-    const currentPangkalan = pangkalanRecord[0];
+    const currentPangkalan = await getActivePangkalan();
 
     // Search products
     const products = await db
@@ -519,8 +454,8 @@ export async function searchProducts(query: string) {
         name: product.name,
         category: product.category,
         imageUrl: product.imageUrl,
-        priceRegular: priceRule.priceRegular,
-        priceVip: priceRule.priceVip,
+        basePrice: priceRule.basePrice,
+        costPrice: priceRule.costPrice,
         stockFilled: inventory.stockFilled,
       })
       .from(product)
@@ -541,21 +476,23 @@ export async function searchProducts(query: string) {
       .where(
         and(
           ilike(product.name, `%${query}%`),
-          // Only show global products or products from this pangkalan
-          eq(product.isGlobal, true)
+          or(
+            eq(product.isGlobal, true),
+            eq(product.pangkalanId, currentPangkalan.id)
+          )
         )
       )
       .limit(10);
 
     return {
       success: true,
-      data: products.map(product => ({
-        id: product.id,
-        name: product.name,
-        category: product.category as 'gas' | 'water' | 'general',
-        imageUrl: product.imageUrl,
-        price: product.priceRegular || 0,
-        stock: product.stockFilled || 0,
+      data: products.map(p => ({
+        id: p.id,
+        name: p.name,
+        category: p.category as 'gas' | 'water' | 'general',
+        imageUrl: p.imageUrl,
+        price: p.basePrice || 0,
+        stock: p.stockFilled || 0,
       }))
     };
 

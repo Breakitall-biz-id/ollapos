@@ -56,7 +56,7 @@ async function migrateCustomerTypes() {
     for (const cust of existingCustomers) {
       // Convert old isVip to new typeId
       let typeId = 'regular';
-      if (cust.isVip) {
+      if ((cust as any).isVip) {
         // For existing VIP customers, assign Gold tier by default
         typeId = 'gold';
       }
@@ -76,12 +76,12 @@ async function migrateCustomerTypes() {
     const existingPriceRules = await db.select().from(priceRule);
 
     for (const rule of existingPriceRules) {
-      if (rule.priceRegular && rule.priceVip) {
+      if ((rule as any).priceRegular && (rule as any).priceVip) {
         // Use regular price as base price
         await db
           .update(priceRule)
           .set({
-            basePrice: rule.priceRegular,
+            basePrice: (rule as any).priceRegular,
             updatedAt: new Date()
           })
           .where(eq(priceRule.id, rule.id));

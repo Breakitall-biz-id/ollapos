@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { MapPin, Phone, Mail, Search, Users, Plus, Edit2, Trash2 } from 'lucide-react'
+import { MapPin, Phone, Mail, Users, Plus, Edit2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -19,6 +19,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -35,6 +36,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
+import { PageLoadingState } from '@/components/page-loading-state'
+import { Separator } from '@/components/ui/separator'
 import {
   Select,
   SelectContent,
@@ -43,22 +46,31 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { TablePageHeader } from '@/components/table-page-header'
+import { TableEmptyState } from '@/components/table-empty-state'
+import { TableSectionCard } from '@/components/table-section-card'
 import { cn, formatCurrency } from '@/lib/utils'
-import { getCustomersForCurrentPangkalan, getCustomerTypes } from '@/lib/actions'
+import {
+  createCustomerForCurrentPangkalan,
+  deleteCustomerForCurrentPangkalan,
+  getCustomersForCurrentPangkalan,
+  getCustomerTypes,
+  updateCustomerForCurrentPangkalan,
+} from '@/lib/actions'
 
 interface Customer {
   id: string
   name: string
-  phone?: string
-  email?: string
-  address?: string
+  phone: string | null
+  email?: string | null
+  address?: string | null
   typeId: string
-  typeName: string
-  displayName: string
-  discountPercent: number
-  color: string
-  totalSpent: number
-  notes?: string
+  typeName: string | null
+  displayName: string | null
+  discountPercent: number | null
+  color: string | null
+  totalSpent: string | number | null
+  notes?: string | null
 }
 
 interface CustomerType {
@@ -110,7 +122,7 @@ export default function CustomersPage() {
         setCustomerTypes(typesResult.data)
       }
     } catch (error) {
-      toast.error('Gagal memuat data pelanggan')
+      toast.error(error instanceof Error ? error.message : 'Gagal memuat data pelanggan')
     } finally {
       setLoading(false)
     }
@@ -139,7 +151,7 @@ export default function CustomersPage() {
 
     try {
       const customerData = {
-        name: formData.name,
+        name: formData.name.trim(),
         phone: formData.phone || undefined,
         email: formData.email || undefined,
         address: formData.address || undefined,
@@ -147,13 +159,27 @@ export default function CustomersPage() {
         notes: formData.notes || undefined,
       }
 
+      if (!customerData.name) {
+        toast.error('Nama pelanggan wajib diisi')
+        return
+      }
+
+      if (!customerData.typeId) {
+        toast.error('Tipe pelanggan wajib dipilih')
+        return
+      }
+
       if (editingCustomer) {
-        // Update existing customer
-        // TODO: Implement updateCustomer action
+        const result = await updateCustomerForCurrentPangkalan(editingCustomer.id, customerData)
+        if (!result.success) {
+          throw new Error(result.error || 'Gagal memperbarui pelanggan')
+        }
         toast.success('Pelanggan berhasil diperbarui')
       } else {
-        // Add new customer
-        // TODO: Implement createCustomer action
+        const result = await createCustomerForCurrentPangkalan(customerData)
+        if (!result.success) {
+          throw new Error(result.error || 'Gagal menambahkan pelanggan')
+        }
         toast.success('Pelanggan berhasil ditambahkan')
       }
 
@@ -168,9 +194,9 @@ export default function CustomersPage() {
       })
       setEditingCustomer(null)
       setIsAddModalOpen(false)
-      loadData()
+      await loadData()
     } catch (error) {
-      toast.error('Gagal menyimpan pelanggan')
+      toast.error(error instanceof Error ? error.message : 'Gagal menyimpan pelanggan')
     }
   }
 
@@ -198,13 +224,16 @@ export default function CustomersPage() {
     setIsProcessingDelete(true)
 
     try {
-      // TODO: Implement deleteCustomer action once backend is ready
+      const result = await deleteCustomerForCurrentPangkalan(deleteTarget.id)
+      if (!result.success) {
+        throw new Error(result.error || 'Gagal menghapus pelanggan')
+      }
       toast.success('Pelanggan berhasil dihapus')
       setIsDeleteDialogOpen(false)
       setDeleteTarget(null)
-      loadData()
+      await loadData()
     } catch (error) {
-      toast.error('Gagal menghapus pelanggan')
+      toast.error(error instanceof Error ? error.message : 'Gagal menghapus pelanggan')
     } finally {
       setIsProcessingDelete(false)
     }
@@ -228,153 +257,147 @@ export default function CustomersPage() {
   }, [customers, customerTypes])
 
   if (loading) {
-    return (
-      <div className="flex min-h-[420px] items-center justify-center">
-        <div className="flex flex-col items-center gap-3 text-secondary">
-          <Users className="h-6 w-6 animate-spin text-primary" aria-hidden />
-          <p className="text-base font-medium">Memuat data pelanggan…</p>
-        </div>
-      </div>
-    )
+    return <PageLoadingState title="Memuat data pelanggan" />
   }
 
   return (
-    <div className="space-y-8 px-6 pb-12">
-      <div className="flex flex-wrap items-center justify-between gap-4 py-4">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted">Dashboard</p>
-          <h1 className="text-3xl font-semibold text-primary">Manajemen Pelanggan</h1>
-          <p className="text-sm text-secondary">
-            Kelola preferensi pelanggan, catatan kontak, dan tipe membership di satu tempat.
-          </p>
-        </div>
-        <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-          <DialogTrigger asChild>
-            <Button
-              className="flex items-center gap-2 rounded-lg bg-primary px-5 py-6 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/30 transition hover:bg-primary/90"
-              onClick={() => {
-                setEditingCustomer(null)
-                setFormData({
-                  name: '',
-                  phone: '',
-                  email: '',
-                  address: '',
-                  typeId: customerTypes[0]?.id || '',
-                  notes: '',
-                })
-              }}
-            >
-              <Plus className="h-4 w-4" aria-hidden />
-              Tambah Pelanggan
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl rounded-[24px] border border-medium/50 bg-white px-8 py-6 shadow-[0_32px_120px_-48px_rgba(15,23,42,0.65)]">
-            <DialogHeader className="space-y-2">
-              <DialogTitle className="text-3xl font-semibold text-primary">
-                {editingCustomer ? 'Perbarui Pelanggan' : 'Tambah Pelanggan Baru'}
-              </DialogTitle>
-              <p className="text-sm text-secondary">
-                Simpan kontak pelanggan dengan catatan lengkap agar kasir tahu benefit khususnya.
-              </p>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid gap-5 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="name" className="text-sm font-semibold text-primary">
-                    Nama Lengkap
-                  </Label>
-                  <Input
-                    id="name"
-                    className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
-                    value={formData.name}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-sm font-semibold text-primary">
-                    Nomor Telepon
-                  </Label>
-                  <Input
-                    id="phone"
-                    className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
-                    placeholder="08xx-xxxx-xxxx"
-                    value={formData.phone}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-semibold text-primary">
-                    Email
-                  </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
-                    placeholder="email@example.com"
-                    value={formData.email}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="address" className="text-sm font-semibold text-primary">
-                    Alamat
-                  </Label>
-                  <Input
-                    id="address"
-                    className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
-                    value={formData.address}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="typeId" className="text-sm font-semibold text-primary">
-                    Tipe Pelanggan
-                  </Label>
-                  <Select value={formData.typeId} onValueChange={(value) => setFormData((prev) => ({ ...prev, typeId: value }))}>
-                    <SelectTrigger className="h-12 w-full rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20">
-                      <SelectValue placeholder="Pilih tipe pelanggan" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customerTypes.map((type) => (
-                        <SelectItem key={type.id} value={type.id}>
-                          {type.displayName} ({type.discountPercent}% diskon)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="notes" className="text-sm font-semibold text-primary">
-                      Catatan
-                    </Label>
-                    <span className="text-xs font-medium uppercase tracking-[0.2em] text-muted">Opsional</span>
-                  </div>
-                  <Textarea
-                    id="notes"
-                    rows={3}
-                    className="min-h-28 rounded-lg border-medium/40 bg-surface px-4 py-3 text-base shadow-sm focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
-                    placeholder="Catatan tambahan mengenai pelanggan"
-                    value={formData.notes}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                  />
-                </div>
+    <div className="table-page simple-page">
+      <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+        <TablePageHeader
+          title="Manajemen Pelanggan"
+          subtitle="Kelola preferensi pelanggan, catatan kontak, dan tipe pelanggan di satu tempat."
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
+          searchPlaceholder="Cari nama pelanggan atau nomor telepon"
+          rightContent={
+            <DialogTrigger asChild>
+              <Button
+                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-6 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                onClick={() => {
+                  setEditingCustomer(null)
+                  setFormData({
+                    name: '',
+                    phone: '',
+                    email: '',
+                    address: '',
+                    typeId: customerTypes[0]?.id || '',
+                    notes: '',
+                  })
+                }}
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                Tambah Pelanggan
+              </Button>
+            </DialogTrigger>
+          }
+        />
+        <DialogContent className="max-w-2xl">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-3xl font-semibold text-primary">
+              {editingCustomer ? 'Perbarui Pelanggan' : 'Tambah Pelanggan Baru'}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-secondary leading-relaxed">
+              Simpan kontak pelanggan dengan catatan lengkap agar kasir tahu benefit khususnya.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-8">
+            <div className="grid gap-5 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="name" className="text-sm font-semibold text-primary">
+                  Nama Lengkap
+                </Label>
+                <Input
+                  id="name"
+                  className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
+                  value={formData.name}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                  required
+                />
               </div>
-              <DialogFooter className="flex flex-col gap-3 pt-3 sm:flex-row sm:justify-end">
-                <Button type="button" variant="outline" className="h-12 rounded-lg px-6" onClick={() => setIsAddModalOpen(false)}>
-                  Batal
-                </Button>
-                <Button type="submit" className="h-12 rounded-lg px-6">
-                  {editingCustomer ? 'Simpan Perubahan' : 'Simpan Pelanggan'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone" className="text-sm font-semibold text-primary">
+                  Nomor Telepon
+                </Label>
+                <Input
+                  id="phone"
+                  className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
+                  placeholder="08xx-xxxx-xxxx"
+                  value={formData.phone}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-sm font-semibold text-primary">
+                  Email
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
+                  className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
+                  placeholder="email@example.com"
+                  value={formData.email}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="address" className="text-sm font-semibold text-primary">
+                  Alamat
+                </Label>
+                <Input
+                  id="address"
+                  className="h-12 rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
+                  value={formData.address}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="typeId" className="text-sm font-semibold text-primary">
+                  Tipe Pelanggan
+                </Label>
+                <Select value={formData.typeId} onValueChange={(value) => setFormData((prev) => ({ ...prev, typeId: value }))}>
+                  <SelectTrigger className="h-12 w-full rounded-lg border-medium/40 bg-surface px-4 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20">
+                    <SelectValue placeholder="Pilih tipe pelanggan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customerTypes.map((type) => (
+                      <SelectItem key={type.id} value={type.id}>
+                        {type.displayName} ({type.discountPercent}% diskon)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="notes" className="text-sm font-semibold text-primary">
+                    Catatan
+                  </Label>
+                  <span className="text-xs font-medium uppercase tracking-[0.2em] text-muted">Opsional</span>
+                </div>
+                <Textarea
+                  id="notes"
+                  rows={3}
+                  className="min-h-28 rounded-lg border-medium/40 bg-surface px-4 py-3 text-base shadow-sm transition focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
+                  placeholder="Catatan tambahan mengenai pelanggan"
+                  value={formData.notes}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                />
+              </div>
+            </div>
+            <Separator className="hidden md:block" />
+            <DialogFooter className="flex flex-col-reverse gap-3 pt-3 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="h-12 w-full sm:w-auto rounded-lg px-6 text-base font-medium" onClick={() => setIsAddModalOpen(false)}>
+                Batal
+              </Button>
+              <Button type="submit" variant="brand" className="h-12 w-full sm:w-auto rounded-lg px-6 text-base font-medium">
+                {editingCustomer ? 'Simpan Perubahan' : 'Simpan Pelanggan'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="table-stat-strip table-help-card">
         {customerTypeSummary.length === 0 ? (
           <Card className="rounded-xl border border-medium/60 bg-white shadow-[0_18px_60px_-40px_rgba(15,23,42,0.45)] md:col-span-4">
             <CardContent className="flex items-center justify-between gap-4 p-6">
@@ -401,154 +424,205 @@ export default function CustomersPage() {
         )}
       </div>
 
-      <Card className="rounded-xl border border-medium/60 bg-white shadow-[0_26px_80px_-48px_rgba(15,23,42,0.55)]">
-        <CardContent className="space-y-4 p-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
-            <div className="w-full max-w-xl">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <Input
-                  placeholder="Cari nama pelanggan atau nomor telepon"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="h-12 rounded-lg border-medium/50 pl-11 pr-4 shadow-sm focus-visible:border-primary/60"
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
+      <TableSectionCard
+        controls={
+          <>
+            <button
+              type="button"
+              className={cn(
+                "flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-5 py-2 text-sm font-medium transition-all md:flex-none",
+                typeFilter === 'all'
+                  ? "border-primary bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                  : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-primary"
+              )}
+              onClick={() => setTypeFilter('all')}
+            >
+              Semua Tipe
+              <span
                 className={cn(
-                  'flex-1 rounded-lg border border-transparent bg-surface px-4 py-2 text-sm font-medium text-secondary transition hover:border-primary/30 hover:bg-primary/5 md:flex-none',
-                  typeFilter === 'all' && 'border-primary bg-primary/10 text-primary shadow-sm'
+                  "rounded-full px-2 py-0.5 text-[11px]",
+                  typeFilter === 'all' ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
                 )}
-                onClick={() => setTypeFilter('all')}
               >
-                Semua Tipe
-                <span className="ml-2 rounded-lg bg-white px-2 py-0.5 text-xs font-semibold text-primary shadow-sm">
-                  {customers.length}
-                </span>
-              </Button>
-              {customerTypes.map((type) => (
-                <Button
-                  key={type.id}
-                  type="button"
-                  variant="outline"
+                {customers.length}
+              </span>
+            </button>
+            {customerTypes.map((type) => (
+              <button
+                key={type.id}
+                type="button"
+                className={cn(
+                  "flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-5 py-2 text-sm font-medium transition-all md:flex-none",
+                  typeFilter === type.id
+                    ? "border-primary bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-primary"
+                )}
+                onClick={() => setTypeFilter(type.id)}
+              >
+                {type.displayName}
+                <span
                   className={cn(
-                    'flex-1 rounded-lg border border-transparent bg-surface px-4 py-2 text-sm font-medium text-secondary transition hover:border-primary/30 hover:bg-primary/5 md:flex-none',
-                    typeFilter === type.id && 'border-primary bg-primary/10 text-primary shadow-sm'
+                    "rounded-full px-2 py-0.5 text-[11px]",
+                    typeFilter === type.id ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
                   )}
-                  onClick={() => setTypeFilter(type.id)}
                 >
-                  {type.displayName}
-                  <span className="ml-2 rounded-lg bg-white px-2 py-0.5 text-xs font-semibold text-primary shadow-sm">
-                    {filteredTypeCounts[type.id] ?? 0}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-xl border border-medium/70 bg-white shadow-[0_26px_80px_-48px_rgba(15,23,42,0.55)]">
-        <CardHeader className="space-y-2 border-b border-medium/40 pb-6">
-          <div className="flex items-center gap-2 text-sm font-medium text-primary">
-            <span className="h-2 w-2 rounded-xl bg-primary" aria-hidden />
-            Daftar Pelanggan
-          </div>
-          <CardTitle className="text-2xl font-semibold text-primary">
-            {filteredCustomers.length} Kontak Aktif
-          </CardTitle>
-          <p className="text-sm text-secondary">Pantau riwayat belanja dan informasi kontak pelanggan setia.</p>
-        </CardHeader>
-        <CardContent className="pt-6">
-          {filteredCustomers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-secondary">
-              <Users className="h-10 w-10 text-muted" aria-hidden />
-              <div>
-                <p className="text-lg font-semibold text-primary">Belum ada pelanggan</p>
-                <p className="text-sm text-muted">Tambahkan data pelanggan untuk mulai melacak benefitnya.</p>
+                  {filteredTypeCounts[type.id] ?? 0}
+                </span>
+              </button>
+            ))}
+          </>
+        }
+        isEmpty={filteredCustomers.length === 0}
+        emptyState={
+          <TableEmptyState
+            title="Belum ada pelanggan"
+            description="Tambahkan data pelanggan untuk mulai melacak benefitnya."
+            icon={Users}
+          />
+        }
+        footer={
+          <>
+            <span>Menampilkan {filteredCustomers.length} pelanggan</span>
+            <span>Kontak aktif</span>
+          </>
+        }
+        footerClassName="hidden md:flex"
+      >
+        <>
+          <div className="grid gap-3 p-3 md:hidden">
+            {filteredCustomers.map((customer) => (
+              <div key={`mobile-${customer.id}`} className="space-y-3 rounded-xl border border-medium/40 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold text-primary">{customer.name}</p>
+                    {customer.address && <p className="text-sm text-secondary">{customer.address}</p>}
+                  </div>
+                  <Badge className="border border-primary/20 bg-primary/10 text-primary">
+                    {customer.displayName ?? 'Umum'}
+                  </Badge>
+                </div>
+                <div className="space-y-1 text-sm text-secondary">
+                  {customer.phone && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-3.5 w-3.5 text-muted" aria-hidden />
+                      {customer.phone}
+                    </div>
+                  )}
+                  {customer.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-3.5 w-3.5 text-muted" aria-hidden />
+                      {customer.email}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-surface px-3 py-2">
+                  <span className="text-sm text-secondary">Total belanja</span>
+                  <span className="font-semibold text-primary">{formatCurrency(customer.totalSpent ?? 0)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 rounded-lg"
+                    onClick={() => handleEdit(customer)}
+                  >
+                    <Edit2 className="h-4 w-4" aria-hidden />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 rounded-lg text-destructive hover:text-destructive"
+                    onClick={() => handleDeleteRequest(customer)}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                    Hapus
+                  </Button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-medium/40">
-              <Table className="bg-white text-sm">
-                <TableHeader className="bg-surface-secondary/70">
-                  <TableRow className="border-medium/40">
-                    <TableHead className="w-[280px] text-xs font-semibold uppercase tracking-widest text-secondary">Nama</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Tipe</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Kontak</TableHead>
-                    <TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Total Belanja</TableHead>
-                    <TableHead className="text-right text-xs font-semibold uppercase tracking-widest text-secondary">Aksi</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCustomers.map((customer) => (
-                    <TableRow key={customer.id} className="border-medium/30 transition hover:bg-surface-secondary/60">
-                      <TableCell>
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-primary">{customer.name}</p>
-                          {customer.address && (
-                            <div className="flex items-center gap-1 text-xs text-muted">
-                              <MapPin className="h-3 w-3" aria-hidden />
-                              {customer.address}
-                            </div>
-                          )}
-                          {customer.notes && <p className="text-xs text-secondary italic">{customer.notes}</p>}
+            ))}
+          </div>
+
+          <Table className="hidden bg-white text-sm md:table">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[280px] text-xs font-semibold uppercase tracking-widest text-secondary">Nama</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Tipe</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Kontak</TableHead>
+                <TableHead className="text-xs font-semibold uppercase tracking-widest text-secondary">Total Belanja</TableHead>
+                <TableHead className="text-right text-xs font-semibold uppercase tracking-widest text-secondary">Aksi</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredCustomers.map((customer) => (
+                <TableRow key={customer.id} className="transition">
+                  <TableCell>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-primary">{customer.name}</p>
+                      {customer.address && (
+                        <div className="flex items-center gap-1 text-xs text-muted">
+                          <MapPin className="h-3 w-3" aria-hidden />
+                          {customer.address}
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="border border-primary/20 bg-primary/10 text-primary">
-                          {customer.displayName}
-                        </Badge>
-                        {customer.discountPercent > 0 && (
-                          <p className="text-xs font-medium text-success">{customer.discountPercent}% diskon</p>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1 text-sm text-secondary">
-                          {customer.phone && (
-                            <div className="flex items-center gap-1">
-                              <Phone className="h-3.5 w-3.5 text-muted" aria-hidden />
-                              {customer.phone}
-                            </div>
-                          )}
-                          {customer.email && (
-                            <div className="flex items-center gap-1">
-                              <Mail className="h-3.5 w-3.5 text-muted" aria-hidden />
-                              {customer.email}
-                            </div>
-                          )}
+                      )}
+                      {customer.notes && <p className="text-xs text-secondary italic">{customer.notes}</p>}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge className="border border-primary/20 bg-primary/10 text-primary">
+                      {customer.displayName}
+                    </Badge>
+                    {(customer.discountPercent ?? 0) > 0 && (
+                      <p className="text-xs font-medium text-success">{customer.discountPercent}% diskon</p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-1 text-sm text-secondary">
+                      {customer.phone && (
+                        <div className="flex items-center gap-1">
+                          <Phone className="h-3.5 w-3.5 text-muted" aria-hidden />
+                          {customer.phone}
                         </div>
-                      </TableCell>
-                      <TableCell className="font-semibold text-primary">
-                        {formatCurrency(customer.totalSpent)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" className="rounded-lg" onClick={() => handleEdit(customer)}>
-                            <Edit2 className="h-4 w-4" aria-hidden />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="rounded-lg text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteRequest(customer)}
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden />
-                          </Button>
+                      )}
+                      {customer.email && (
+                        <div className="flex items-center gap-1">
+                          <Mail className="h-3.5 w-3.5 text-muted" aria-hidden />
+                          {customer.email}
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-semibold text-primary">
+                    {formatCurrency(customer.totalSpent ?? 0)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-lg"
+                        onClick={() => handleEdit(customer)}
+                      >
+                        <Edit2 className="h-4 w-4" aria-hidden />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-lg text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteRequest(customer)}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        Hapus
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </>
+      </TableSectionCard>
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={(open) => {
@@ -558,7 +632,7 @@ export default function CustomersPage() {
           setIsDeleteDialogOpen(open)
         }}
       >
-        <AlertDialogContent className="max-w-md rounded-2xl border border-medium/40 bg-white px-6 py-5 shadow-[0_40px_120px_-60px_rgba(15,23,42,0.6)]">
+        <AlertDialogContent className="max-w-md">
           <AlertDialogHeader className="space-y-3">
             <AlertDialogTitle className="text-2xl font-semibold text-primary">
               Hapus Pelanggan

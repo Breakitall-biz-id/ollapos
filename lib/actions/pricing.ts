@@ -2,7 +2,8 @@
 
 import { db } from '@/db';
 import { priceRule, customerType, product } from '@/db/schema/pos';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
+import { resolveDiscount } from './product-tier-pricing';
 
 export async function calculateProductPrice(productId: string, customerTypeId: string, pangkalanId: string) {
   try {
@@ -10,24 +11,14 @@ export async function calculateProductPrice(productId: string, customerTypeId: s
     const priceRuleRecord = await db
       .select({ basePrice: priceRule.basePrice })
       .from(priceRule)
-      .where(
-        eq(priceRule.productId, productId) && eq(priceRule.pangkalanId, pangkalanId)
-      )
+      .where(and(
+        eq(priceRule.productId, productId),
+        eq(priceRule.pangkalanId, pangkalanId)
+      ))
       .limit(1);
 
     if (priceRuleRecord.length === 0) {
       throw new Error('Price rule not found');
-    }
-
-    // Get customer type discount
-    const customerTypeRecord = await db
-      .select({ discountPercent: customerType.discountPercent })
-      .from(customerType)
-      .where(eq(customerType.id, customerTypeId))
-      .limit(1);
-
-    if (customerTypeRecord.length === 0) {
-      throw new Error('Customer type not found');
     }
 
     // Lookup product category
@@ -38,19 +29,21 @@ export async function calculateProductPrice(productId: string, customerTypeId: s
       .limit(1);
 
     const basePrice = Number(priceRuleRecord[0].basePrice);
-    const isGas = productRecord.length > 0 && productRecord[0].category === 'gas';
-    const discountPercent = isGas ? 0 : (customerTypeRecord[0].discountPercent || 0);
+    const productCategory = productRecord.length > 0 ? productRecord[0].category : undefined;
 
-    // Calculate final price with discount
-    const discountedPrice = basePrice * (1 - discountPercent / 100);
+    // Use resolver: product-tier override first, then global tier
+    const resolved = await resolveDiscount(productId, customerTypeId, basePrice, productCategory ?? undefined);
 
     return {
       success: true,
       data: {
         basePrice,
-        discountPercent,
-        finalPrice: Math.round(discountedPrice),
-        discountAmount: Math.round(basePrice - discountedPrice)
+        discountPercent: resolved.type === 'percentage' ? resolved.value : 0,
+        finalPrice: resolved.finalPrice,
+        discountAmount: resolved.discountAmount,
+        discountSource: resolved.source,
+        discountType: resolved.type,
+        discountValue: resolved.value,
       }
     };
 

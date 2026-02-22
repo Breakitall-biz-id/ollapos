@@ -78,23 +78,23 @@ async function addSampleCustomers() {
         });
         console.log(`✅ Added ${customerData.name} (${customerData.typeId})`);
       } catch (error) {
-        console.log(`⚠️ Customer ${customerData.name} already exists or error: ${error.message}`);
+        console.log(`⚠️ Customer ${customerData.name} already exists or error: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
     // Update existing customers with spending
     const existingCustomers = await db.select().from(customer);
-    for (const customer of existingCustomers) {
-      if (customer.totalSpent === 0) {
+    for (const c of existingCustomers) {
+      if (c.totalSpent === '0' || c.totalSpent === '0.00' || Number(c.totalSpent) === 0) {
         const randomSpent = Math.floor(Math.random() * 300000) + 100000;
         await db
           .update(customer)
           .set({
-            totalSpent: randomSpent,
+            totalSpent: randomSpent.toString(),
             updatedAt: new Date()
           })
-          .where(eq(customer.id, customer.id));
-        console.log(`💰 Updated spending for ${customer.name}: Rp${randomSpent.toLocaleString('id-ID')}`);
+          .where(eq(customer.id, c.id));
+        console.log(`💰 Updated spending for ${c.name}: Rp${randomSpent.toLocaleString('id-ID')}`);
       }
     }
 

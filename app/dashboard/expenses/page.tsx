@@ -1,34 +1,22 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
-  CalendarDays,
-  FileText,
   Receipt,
   Plus,
-  Search,
-  Filter,
   MoreHorizontal,
   Edit,
   Trash2,
-  X,
   Loader2,
-  Package,
-  HomeIcon,
-  Settings,
-  Zap,
-  Wrench,
-  User,
-  Megaphone,
-  Users,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -52,7 +40,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
+import { PageLoadingState } from "@/components/page-loading-state"
 import {
   Select,
   SelectContent,
@@ -64,18 +54,25 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { TablePageHeader } from "@/components/table-page-header"
+import { TableEmptyState } from "@/components/table-empty-state"
+import { SetupRequiredBanner } from "@/components/setup-required-banner"
+import { TableSectionCard } from "@/components/table-section-card"
 
 import {
   getExpensesForCurrentPangkalan,
   getExpenseCategories,
+  initializeDefaultExpenseCategories,
   createExpense,
   updateExpense,
   deleteExpense,
   type ExpenseListItem,
   type ExpenseCategoryItem,
 } from "@/lib/actions/expenses"
+import { getActivePangkalanCapitalBalance } from "@/lib/actions"
+import { getExpenseCategoryPresentation } from "@/lib/expense-category-presentation"
 import { formatCurrency } from "@/lib/utils"
-import Home from "@/app/page"
+
 
 type ExpenseFormData = {
   description: string
@@ -98,6 +95,8 @@ export default function ExpensesPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deletingExpense, setDeletingExpense] = useState<ExpenseListItem | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isInitializingCategories, setIsInitializingCategories] = useState(false)
+  const [capitalBalance, setCapitalBalance] = useState(0)
 
   const [formData, setFormData] = useState<ExpenseFormData>({
     description: "",
@@ -108,15 +107,16 @@ export default function ExpensesPage() {
     expenseDate: new Date().toISOString().split('T')[0],
   })
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [expensesResult, categoriesResult] = await Promise.all([
+      const [expensesResult, categoriesResult, capitalResult] = await Promise.all([
         getExpensesForCurrentPangkalan({
           search: searchTerm || undefined,
           categoryId: selectedCategory !== "all" ? selectedCategory : undefined,
         }),
         getExpenseCategories(),
+        getActivePangkalanCapitalBalance(),
       ])
 
       if (expensesResult.success) {
@@ -127,11 +127,16 @@ export default function ExpensesPage() {
 
       if (categoriesResult.success) {
         setCategories(categoriesResult.data)
-        if (categoriesResult.data.length > 0 && !formData.categoryId) {
-          setFormData(prev => ({ ...prev, categoryId: categoriesResult.data[0].id }))
+        if (categoriesResult.data.length > 0) {
+          const firstCategoryId = categoriesResult.data[0].id
+          setFormData(prev => (prev.categoryId ? prev : { ...prev, categoryId: firstCategoryId }))
         }
       } else {
         toast.error(categoriesResult.error || "Gagal memuat kategori")
+      }
+
+      if (capitalResult.success) {
+        setCapitalBalance(capitalResult.data.balance)
       }
     } catch (error) {
       console.error("Error loading expenses:", error)
@@ -139,11 +144,11 @@ export default function ExpensesPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [searchTerm, selectedCategory])
 
   useEffect(() => {
-    loadData()
-  }, [searchTerm, selectedCategory])
+    void loadData()
+  }, [loadData])
 
   const resetFormData = () => {
     setFormData({
@@ -269,382 +274,303 @@ export default function ExpensesPage() {
     return categories.find(cat => cat.id === categoryId)
   }
 
-  if (loading) {
+  const renderCategoryOption = (category: ExpenseCategoryItem) => {
+    const { Icon, color, name } = getExpenseCategoryPresentation(category)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB]">
-        <div className="text-center">
-          <Loader2 className="mx-auto mb-4 h-14 w-14 animate-spin text-primary" aria-hidden />
-          <h2 className="text-2xl font-semibold text-primary">Memuat Pengeluaran</h2>
-          <p className="text-secondary">Mohon tunggu sesaat…</p>
-        </div>
+      <div className="flex items-center gap-2">
+        <div className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
+        <Icon className="h-4 w-4" aria-hidden />
+        <span>{name}</span>
       </div>
     )
   }
 
+  const handleInitializeCategories = async () => {
+    setIsInitializingCategories(true)
+    try {
+      const result = await initializeDefaultExpenseCategories()
+      if (!result.success) {
+        throw new Error(result.error || "Gagal menginisialisasi kategori")
+      }
+      toast.success("Kategori default berhasil diinisialisasi")
+      await loadData()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Gagal menginisialisasi kategori")
+    } finally {
+      setIsInitializingCategories(false)
+    }
+  }
+
+  if (loading) {
+    return <PageLoadingState title="Memuat pengeluaran" />
+  }
+
   return (
-    <div className="min-h-screen bg-[#F5F7FB] px-4 py-6 sm:px-6 lg:px-10">
-      <div className="mx-auto max-w-7xl">
-        <div className="rounded-[32px] border border-white/60 bg-gradient-to-br from-white via-white to-[#F2F4FF] p-6 shadow-[0_40px_120px_-80px_rgba(15,23,42,0.8)] sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-secondary">Keuangan</p>
-              <h1 className="text-3xl font-semibold leading-tight text-primary lg:text-4xl">Pengeluaran</h1>
-              <p className="text-sm text-secondary">Kelola dan lacak semua pengeluaran bisnis Anda</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge className="rounded-full border border-primary/10 bg-primary/5 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-primary">
+    <div className="table-page simple-page">
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <TablePageHeader
+          title="Pengeluaran"
+          subtitle="Kelola dan lacak semua pengeluaran bisnis Anda."
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
+          searchPlaceholder="Cari pengeluaran..."
+          rightContent={
+            <>
+              <Badge className="rounded-md border border-primary/15 bg-primary/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
                 Total: {formatCurrency(totalExpenses)}
               </Badge>
-              <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="rounded-full px-6">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Tambah Pengeluaran
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-md space-y-6">
-                  <DialogHeader>
-                    <DialogTitle>Tambah Pengeluaran Baru</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="description">Deskripsi *</Label>
-                      <Input
-                        id="description"
-                        value={formData.description}
-                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                        placeholder="Mis: Beli ATK kantor"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="amount">Jumlah *</Label>
-                      <Input
-                        id="amount"
-                        type="number"
-                        step="0.01"
-                        value={formData.amount}
-                        onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="category">Kategori *</Label>
-                      <Select
-                        value={formData.categoryId}
-                        onValueChange={(value) => setFormData(prev => ({ ...prev, categoryId: value }))}
-                      >
-                        <SelectTrigger className="h-12 w-full">
-                          <SelectValue placeholder="Pilih kategori" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="operational">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-red-500" />
-                              <Settings className="h-4 w-4 text-red-500" />
-                              <span>Operasional</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="utilities">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-blue-500" />
-                              <Zap className="h-4 w-4 text-blue-500" />
-                              <span>Utilitas</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="maintenance">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-yellow-500" />
-                              <Wrench className="h-4 w-4 text-yellow-500" />
-                              <span>Pemeliharaan</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="salary">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-green-500" />
-                              <Users className="h-4 w-4 text-green-500" />
-                              <span>Gaji</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="marketing">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-purple-500" />
-                              <Megaphone className="h-4 w-4 text-purple-500" />
-                              <span>Pemasaran</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="equipment">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-pink-500" />
-                              <Package className="h-4 w-4 text-pink-500" />
-                              <span>Peralatan</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="rent">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-orange-500" />
-                              <HomeIcon className="h-4 w-4 text-orange-500" />
-                              <span>Sewa</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="tax">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-cyan-500" />
-                              <FileText className="h-4 w-4 text-cyan-500" />
-                              <span>Pajak</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="other">
-                            <div className="flex items-center gap-2">
-                              <div className="h-3 w-3 rounded-full bg-gray-500" />
-                              <MoreHorizontal className="h-4 w-4 text-gray-500" />
-                              <span>Lainnya</span>
-                            </div>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="receiptNumber">Nomor Resi</Label>
-                      <Input
-                        id="receiptNumber"
-                        value={formData.receiptNumber}
-                        onChange={(e) => setFormData(prev => ({ ...prev, receiptNumber: e.target.value }))}
-                        placeholder="Opsional"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="expenseDate">Tanggal</Label>
-                      <Input
-                        id="expenseDate"
-                        type="date"
-                        value={formData.expenseDate}
-                        onChange={(e) => setFormData(prev => ({ ...prev, expenseDate: e.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="notes">Catatan</Label>
-                      <Textarea
-                        id="notes"
-                        value={formData.notes}
-                        onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                        placeholder="Catatan tambahan (opsional)"
-                        rows={3}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                    <Button
-                      variant="outline"
-                      className="sm:min-w-[160px]"
-                      onClick={() => setIsCreateDialogOpen(false)}
-                      disabled={isSubmitting}
-                    >
-                      Batal
-                    </Button>
-                    <Button
-                      className="sm:min-w-[200px]"
-                      onClick={handleCreateExpense}
-                      disabled={isSubmitting}
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Menyimpan…
-                        </>
-                      ) : (
-                        "Simpan Pengeluaran"
-                      )}
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
+              <Badge className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                Saldo: {formatCurrency(capitalBalance)}
+              </Badge>
+              <DialogTrigger asChild>
+                <Button className="rounded-lg px-6" disabled={categories.length === 0}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Tambah Pengeluaran
+                </Button>
+              </DialogTrigger>
+            </>
+          }
+        />
+        <DialogContent className="max-w-md">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-3xl font-semibold text-primary">Tambah Pengeluaran Baru</DialogTitle>
+            <DialogDescription className="text-sm text-secondary leading-relaxed">
+              Catat pengeluaran operasional toko untuk memantau arus kas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-8">
+            <div className="space-y-2">
+              <Label htmlFor="description">Deskripsi *</Label>
               <Input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Cari pengeluaran..."
-                className="h-12 rounded-2xl border-medium/40 bg-white pl-11 text-base"
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Mis: Beli ATK kantor"
               />
             </div>
-            <div className="flex gap-3">
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger className="h-12 w-full rounded-2xl border-medium/40 bg-white sm:w-48">
-                  <SelectValue placeholder="Semua Kategori" />
+            <div className="space-y-2">
+              <Label htmlFor="amount">Jumlah *</Label>
+              <NumericInput
+                id="amount"
+                allowDecimal
+                value={formData.amount}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, amount: value }))}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="category">Kategori *</Label>
+              <Select
+                value={formData.categoryId}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, categoryId: value }))}
+                disabled={categories.length === 0}
+              >
+                <SelectTrigger className="h-12 w-full">
+                  <SelectValue placeholder={categories.length === 0 ? "Kategori belum tersedia" : "Pilih kategori"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Semua Kategori</SelectItem>
-                  <Separator />
-                  <SelectItem value="operational">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-red-500" />
-                      <Settings className="h-4 w-4 text-red-500" />
-                      <span>Operasional</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="utilities">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-blue-500" />
-                      <Zap className="h-4 w-4 text-blue-500" />
-                      <span>Utilitas</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="maintenance">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-yellow-500" />
-                      <Wrench className="h-4 w-4 text-yellow-500" />
-                      <span>Pemeliharaan</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="salary">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-green-500" />
-                      <Users className="h-4 w-4 text-green-500" />
-                      <span>Gaji</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="marketing">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-purple-500" />
-                      <Megaphone className="h-4 w-4 text-purple-500" />
-                      <span>Pemasaran</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="equipment">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-pink-500" />
-                      <Package className="h-4 w-4 text-pink-500" />
-                      <span>Peralatan</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="rent">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-orange-500" />
-                      <HomeIcon className="h-4 w-4 text-orange-500" />
-                      <span>Sewa</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="tax">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-cyan-500" />
-                      <FileText className="h-4 w-4 text-cyan-500" />
-                      <span>Pajak</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="other">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-gray-500" />
-                      <MoreHorizontal className="h-4 w-4 text-gray-500" />
-                      <span>Lainnya</span>
-                    </div>
-                  </SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {renderCategoryOption(category)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="receiptNumber">Nomor Resi</Label>
+              <Input
+                id="receiptNumber"
+                value={formData.receiptNumber}
+                onChange={(e) => setFormData(prev => ({ ...prev, receiptNumber: e.target.value }))}
+                placeholder="Opsional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expenseDate">Tanggal</Label>
+              <Input
+                id="expenseDate"
+                type="date"
+                value={formData.expenseDate}
+                onChange={(e) => setFormData(prev => ({ ...prev, expenseDate: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="notes">Catatan</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes}
+                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="Catatan tambahan (opsional)"
+                rows={3}
+              />
+            </div>
           </div>
-        </div>
+          <Separator className="hidden md:block" />
+          <DialogFooter className="flex flex-col-reverse gap-3 pt-3 sm:flex-row sm:justify-end">
+            <Button
+              variant="outline"
+              className="h-12 w-full sm:w-auto rounded-lg px-6 text-base font-medium"
+              onClick={() => setIsCreateDialogOpen(false)}
+              disabled={isSubmitting}
+            >
+              Batal
+            </Button>
+            <Button
+              variant="brand"
+              className="h-12 w-full sm:w-auto rounded-lg px-6 text-base font-medium"
+              onClick={handleCreateExpense}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Menyimpan…
+                </>
+              ) : (
+                "Simpan Pengeluaran"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        <div className="mt-6 rounded-[32px] border border-white/60 bg-white shadow-[0_40px_120px_-80px_rgba(15,23,42,0.8)]">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-xl font-semibold text-primary">Daftar Pengeluaran</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {expenses.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-medium/40 bg-surface-tertiary/80 p-12 text-center text-secondary">
-                <Receipt className="mb-4 h-16 w-16 text-muted" aria-hidden />
-                <p className="text-lg font-medium text-primary">Belum ada pengeluaran</p>
-                <p className="text-sm">Tambahkan pengeluaran pertama untuk mulai melacak keuangan</p>
-              </div>
-            ) : (
-              <ScrollArea className="h-[70vh]">
-                <div className="space-y-1 p-6">
-                  {expenses.map((expense) => {
-                    const category = getCategoryById(expense.categoryId)
-                    return (
-                      <div
-                        key={expense.id}
-                        className="flex items-center justify-between rounded-2xl border border-medium/40 bg-surface p-4 transition-colors hover:bg-surface-secondary"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div
-                            className="flex h-10 w-10 items-center justify-center rounded-full text-white"
-                            style={{ backgroundColor: category?.color || '#6B7280' }}
-                          >
-                            <Receipt className="h-5 w-5" aria-hidden />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-medium text-primary">{expense.description}</p>
-                            <div className="flex items-center gap-2 text-sm text-secondary">
-                              {category && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {category.name}
-                                </Badge>
-                              )}
-                              {expense.expenseDate && (
-                                <>
-                                  <span>•</span>
-                                  <span>{new Date(expense.expenseDate).toLocaleDateString('id-ID')}</span>
-                                </>
-                              )}
-                              {expense.receiptNumber && (
-                                <>
-                                  <span>•</span>
-                                  <span>Resi: {expense.receiptNumber}</span>
-                                </>
-                              )}
-                            </div>
-                            {expense.notes && (
-                              <p className="mt-1 text-sm text-secondary">{expense.notes}</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <p className="font-semibold text-primary">{formatCurrency(parseFloat(expense.amount))}</p>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuLabel>Aksi</DropdownMenuLabel>
-                              <DropdownMenuItem onClick={() => openEditDialog(expense)}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => openDeleteDialog(expense)}
-                                className="text-destructive focus:text-destructive"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Hapus
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
+      <TableSectionCard
+        controls={
+          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <SelectTrigger className="h-11 w-full rounded-lg border-medium/40 bg-white sm:w-48">
+              <SelectValue placeholder="Semua Kategori" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Semua Kategori</SelectItem>
+              <Separator />
+              {categories.map((category) => (
+                <SelectItem key={`filter-${category.id}`} value={category.id}>
+                  {renderCategoryOption(category)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+        topContent={
+          categories.length === 0 ? (
+            <SetupRequiredBanner
+              className="rounded-2xl border border-warning/50 bg-warning-subtle p-4 text-warning"
+              title="Kategori pengeluaran belum tersedia."
+              description="Klik tombol di bawah untuk menginisialisasi kategori default."
+              actionLabel="Inisialisasi Kategori Default"
+              actionInProgressLabel="Menginisialisasi..."
+              isLoading={isInitializingCategories}
+              onAction={handleInitializeCategories}
+            />
+          ) : null
+        }
+        isEmpty={expenses.length === 0}
+        emptyState={
+          <TableEmptyState
+            title="Belum ada pengeluaran"
+            description="Tambahkan pengeluaran pertama untuk mulai melacak keuangan."
+            icon={Receipt}
+          />
+        }
+        footer={
+          <>
+            <span>Menampilkan {expenses.length} pengeluaran</span>
+            <span>Total {formatCurrency(totalExpenses)}</span>
+          </>
+        }
+      >
+        <ScrollArea className="h-[70vh]">
+          <div className="space-y-1 p-4">
+            {expenses.map((expense) => {
+              const category = getCategoryById(expense.categoryId)
+              const categoryPresentation = category ? getExpenseCategoryPresentation(category) : null
+              return (
+                <div
+                  key={expense.id}
+                  className="flex items-center justify-between rounded-lg border border-medium/40 bg-white p-4 transition-colors hover:bg-surface-secondary"
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-white"
+                      style={{ backgroundColor: categoryPresentation?.color || '#6B7280' }}
+                    >
+                      {categoryPresentation ? (
+                        <categoryPresentation.Icon className="h-5 w-5" aria-hidden />
+                      ) : (
+                        <Receipt className="h-5 w-5" aria-hidden />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-primary">{expense.description}</p>
+                      <div className="flex items-center gap-2 text-sm text-secondary">
+                        {category && (
+                          <Badge variant="secondary" className="text-xs">
+                            {categoryPresentation?.name || category.name}
+                          </Badge>
+                        )}
+                        {expense.expenseDate && (
+                          <>
+                            <span>•</span>
+                            <span>{new Date(expense.expenseDate).toLocaleDateString('id-ID')}</span>
+                          </>
+                        )}
+                        {expense.receiptNumber && (
+                          <>
+                            <span>•</span>
+                            <span>Resi: {expense.receiptNumber}</span>
+                          </>
+                        )}
                       </div>
-                    )
-                  })}
+                      {expense.notes && (
+                        <p className="mt-1 text-sm text-secondary">{expense.notes}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className="font-semibold text-primary">{formatCurrency(parseFloat(expense.amount))}</p>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Aksi</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => openEditDialog(expense)}>
+                          <Edit className="mr-2 h-4 w-4" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => openDeleteDialog(expense)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Hapus
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </div>
-      </div>
+              )
+            })}
+          </div>
+        </ScrollArea>
+      </TableSectionCard>
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-md space-y-6">
-          <DialogHeader>
-            <DialogTitle>Edit Pengeluaran</DialogTitle>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-3xl font-semibold text-primary">Edit Pengeluaran</DialogTitle>
+            <DialogDescription className="text-sm text-secondary leading-relaxed">
+              Perbarui rincian pengeluaran operasional toko.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-8">
             <div className="space-y-2">
               <Label htmlFor="edit-description">Deskripsi *</Label>
               <Input
@@ -656,12 +582,11 @@ export default function ExpensesPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-amount">Jumlah *</Label>
-              <Input
+              <NumericInput
                 id="edit-amount"
-                type="number"
-                step="0.01"
+                allowDecimal
                 value={formData.amount}
-                onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, amount: value }))}
                 placeholder="0.00"
               />
             </div>
@@ -670,74 +595,17 @@ export default function ExpensesPage() {
               <Select
                 value={formData.categoryId}
                 onValueChange={(value) => setFormData(prev => ({ ...prev, categoryId: value }))}
+                disabled={categories.length === 0}
               >
-                <SelectTrigger className="h-11 w-full">
-                  <SelectValue placeholder="Pilih kategori" />
+                <SelectTrigger className="h-12 w-full">
+                  <SelectValue placeholder={categories.length === 0 ? "Kategori belum tersedia" : "Pilih kategori"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="operational">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-red-500" />
-                      <Settings className="h-4 w-4 text-red-500" />
-                      <span>Operasional</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="utilities">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-blue-500" />
-                      <Zap className="h-4 w-4 text-blue-500" />
-                      <span>Utilitas</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="maintenance">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-yellow-500" />
-                      <Wrench className="h-4 w-4 text-yellow-500" />
-                      <span>Pemeliharaan</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="salary">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-green-500" />
-                      <User className="h-4 w-4 text-green-500" />
-                      <span>Gaji</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="marketing">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-purple-500" />
-                      <Megaphone className="h-4 w-4 text-purple-500" />
-                      <span>Pemasaran</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="equipment">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-pink-500" />
-                      <Package className="h-4 w-4 text-pink-500" />
-                      <span>Peralatan</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="rent">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-orange-500" />
-                      <Home className="h-4 w-4 text-orange-500" />
-                      <span>Sewa</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="tax">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-cyan-500" />
-                      <FileText className="h-4 w-4 text-cyan-500" />
-                      <span>Pajak</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="other">
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full bg-gray-500" />
-                      <MoreHorizontal className="h-4 w-4 text-gray-500" />
-                      <span>Lainnya</span>
-                    </div>
-                  </SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={`edit-${category.id}`} value={category.id}>
+                      {renderCategoryOption(category)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -770,17 +638,19 @@ export default function ExpensesPage() {
               />
             </div>
           </div>
-          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Separator className="hidden md:block" />
+          <DialogFooter className="flex flex-col-reverse gap-3 pt-3 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
-              className="sm:min-w-[160px]"
+              className="h-12 w-full sm:w-auto rounded-lg px-6 text-base font-medium"
               onClick={() => setIsEditDialogOpen(false)}
               disabled={isSubmitting}
             >
               Batal
             </Button>
             <Button
-              className="sm:min-w-[200px]"
+              variant="brand"
+              className="h-12 w-full sm:w-auto rounded-lg px-6 text-base font-medium"
               onClick={handleUpdateExpense}
               disabled={isSubmitting}
             >
@@ -793,26 +663,26 @@ export default function ExpensesPage() {
                 "Simpan Perubahan"
               )}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Delete Dialog */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Hapus Pengeluaran</AlertDialogTitle>
-            <AlertDialogDescription>
-              Apakah Anda yakin ingin menghapus pengeluaran "{deletingExpense?.description}" sebesar {deletingExpense && formatCurrency(parseFloat(deletingExpense.amount))}?
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader className="space-y-3">
+            <AlertDialogTitle className="text-2xl font-semibold text-primary">Hapus Pengeluaran</AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-relaxed text-secondary">
+              Apakah Anda yakin ingin menghapus pengeluaran &quot;{deletingExpense?.description}&quot; sebesar {deletingExpense && formatCurrency(parseFloat(deletingExpense.amount))}?
               Tindakan ini tidak dapat dibatalkan.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSubmitting}>Batal</AlertDialogCancel>
+          <AlertDialogFooter className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <AlertDialogCancel disabled={isSubmitting} className="h-12 w-full sm:w-auto rounded-lg border-medium/40 px-6 text-base font-semibold">Batal</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteExpense}
               disabled={isSubmitting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="h-12 w-full sm:w-auto rounded-lg bg-destructive px-6 text-base font-semibold text-destructive-foreground hover:bg-destructive/90"
             >
               {isSubmitting ? (
                 <>

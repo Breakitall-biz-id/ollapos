@@ -5,7 +5,6 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
-import { SiteHeader } from "@/components/site-header"
 
 import "@/app/dashboard/theme.css"
 
@@ -22,14 +21,16 @@ export default async function DashboardLayout({
       defaultOpen={defaultOpen}
       style={
         {
-          "--sidebar-width": "calc(var(--spacing) * 72)",
+          "--sidebar-width": "15rem",
+          "--sidebar-width-icon": "4rem",
         } as React.CSSProperties
       }
     >
-      <AppSidebar variant="inset" />
-      <SidebarInset>
-        <SiteHeader />
-        <div className="flex flex-1 flex-col">{children}</div>
+      <AppSidebar variant="sidebar" />
+      <SidebarInset className="dashboard-stitch bg-[#f6f6f8] md:m-0 md:rounded-none md:shadow-none">
+        <div className="flex min-h-screen flex-1 flex-col">
+          <div className="flex-1">{children}</div>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )
