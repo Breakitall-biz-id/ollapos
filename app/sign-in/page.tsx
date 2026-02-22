@@ -100,16 +100,7 @@ export default function SignInPage() {
                         </Button>
                     </form>
                 </CardContent>
-                <CardFooter className="text-center">
-                    <div className="w-full space-y-3">
-                        <div className="text-sm text-secondary">
-                            <p>Belum punya akun? Hubungi admin</p>
-                        </div>
-                        <div className="text-xs text-muted">
-                            <p>Test Account: bude@pangkalan.com</p>
-                        </div>
-                    </div>
-                </CardFooter>
+               
             </Card>
         </div>
     );

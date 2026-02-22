@@ -469,8 +469,8 @@ export function POSInterface() {
       <div className="h-full w-full overflow-hidden bg-[#f6f6f8]">
         <div className="flex h-full w-full overflow-hidden">
           <main className="flex min-w-0 flex-1 flex-col bg-[#fdfdfd]">
-            <header className="flex h-16 items-center justify-between border-b border-[#e5e7eb] bg-white px-6">
-              <div className="flex w-full max-w-xl items-center gap-4">
+            <header className="flex min-h-16 flex-wrap items-center justify-between gap-y-4 border-b border-[#e5e7eb] bg-white px-6 py-3">
+              <div className="flex min-w-0 flex-1 max-w-xl items-center gap-4 pr-4">
                 <div className="relative w-full">
                   <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#6b7280]" />
                   <Input
@@ -482,24 +482,24 @@ export function POSInterface() {
                 </div>
 
               </div>
-              <div className="flex items-center gap-5">
+              <div className="flex shrink-0 items-center gap-5">
                 <div className="hidden items-center gap-3 lg:flex">
                   <div className="text-right">
-                    <p className="text-sm font-semibold leading-none text-[#111827]">Kasir Utama</p>
-                    <p className="mt-1 text-[13px] text-[#6b7280]">Modal {formatCurrency(capitalBalance)}</p>
+                    <p className="text-sm font-semibold leading-none text-[#111827] whitespace-nowrap">Kasir Utama</p>
+                    <p className="mt-1 text-[13px] text-[#6b7280] whitespace-nowrap">Modal {formatCurrency(capitalBalance)}</p>
                   </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#e5e7eb] bg-[#f9fafb] text-[#6b7280]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#e5e7eb] bg-[#f9fafb] text-[#6b7280]">
                     <User className="size-5" />
                   </div>
                 </div>
 
                 <div className="hidden h-8 w-px bg-[#e5e7eb] lg:block" />
 
-                <div className="flex items-center gap-2.5 rounded-xl border border-[#e5e7eb] bg-[#f9fafb] px-3 py-1.5 shadow-sm">
-                  <Clock3 className="size-4 text-[#6b7280]" />
+                <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-[#e5e7eb] bg-[#f9fafb] px-3 py-1.5 shadow-sm">
+                  <Clock3 className="size-4 shrink-0 text-[#6b7280]" />
                   <div className="flex flex-col">
-                    <p className="mb-0.5 text-[10px] font-bold leading-none tracking-wider text-[#6b7280]">{todayLabel}</p>
-                    <p className="text-sm font-semibold leading-none tabular-nums text-[#111827]">{timeLabel}</p>
+                    <p className="mb-0.5 text-[10px] font-bold leading-none tracking-wider text-[#6b7280] whitespace-nowrap">{todayLabel}</p>
+                    <p className="text-sm font-semibold leading-none tabular-nums text-[#111827] whitespace-nowrap">{timeLabel}</p>
                   </div>
                 </div>
               </div>
