@@ -208,6 +208,44 @@ export function POSInterface() {
     }
   }, [setProductTierPricings])
 
+  // Silent background refresh — no loading spinner
+  const refreshData = useCallback(async () => {
+    try {
+      const [productsResult, capitalResult] = await Promise.all([
+        getProductsForCurrentPangkalan(),
+        getActivePangkalanCapitalBalance(),
+      ])
+
+      if (productsResult.success && Array.isArray(productsResult.data)) {
+        const rawProducts = productsResult.data as RawProduct[]
+        setProducts(
+          rawProducts.map((product) => {
+            const category =
+              product.category === "gas" || product.category === "water"
+                ? product.category
+                : "general"
+            return {
+              id: product.id,
+              name: product.name,
+              category,
+              basePrice: Number(product.basePrice ?? 0),
+              costPrice: Number(product.costPrice ?? 0),
+              stock: Number(product.stock ?? 0),
+              stockEmpty: Number(product.stockEmpty ?? 0),
+              imageUrl: product.imageUrl ?? undefined,
+            }
+          })
+        )
+      }
+
+      if (capitalResult.success) {
+        setCapitalBalance(capitalResult.data.balance)
+      }
+    } catch (error) {
+      console.error("Error refreshing POS data", error)
+    }
+  }, [])
+
   useEffect(() => {
     void loadData()
   }, [loadData])
@@ -405,8 +443,8 @@ export function POSInterface() {
         setCashReceivedInput("")
         setSelectedPaymentMethod("cash")
 
-        // Refresh data to update stock and sales summary
-        await loadData()
+        // Refresh data silently to update stock (no loading spinner)
+        refreshData()
       } else {
         toast.error(result.error || "Gagal memproses pembayaran.")
       }
